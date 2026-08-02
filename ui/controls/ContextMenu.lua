@@ -14,6 +14,10 @@ local constants = {
 }
 
 local function getGuiPoint(instance, point)
+    -- InputObject.Position is already in the same inset-adjusted coordinate
+    -- space as GuiObject.AbsolutePosition. GetMouseLocation returns raw screen
+    -- coordinates, so only Vector2 mouse positions need the top inset removed.
+    local isInputPosition = typeof(point) == "Vector3"
     point = Vector2.new(point.X, point.Y)
 
     local cam = workspace.CurrentCamera
@@ -21,7 +25,11 @@ local function getGuiPoint(instance, point)
     local screenGui = instance:FindFirstAncestorWhichIsA("ScreenGui")
     if screenGui and not screenGui.IgnoreGuiInset then
         local topLeft, bottomRight = GuiService:GetGuiInset()
-        return point - topLeft, viewport - topLeft - bottomRight
+        if not isInputPosition then
+            point -= topLeft
+        end
+
+        return point, viewport - topLeft - bottomRight
     end
 
     return point, viewport

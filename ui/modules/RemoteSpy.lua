@@ -1547,8 +1547,14 @@ scriptContext:SetCallback(function()
     end
 
     setClipboard(source)
-    task.wait(0.25)
-    oh.setStatus(oldStatus)
+    local copiedStatus = call.direction == "incoming" and "Local replay copied to clipboard"
+        or "Generated script copied to clipboard"
+    oh.setStatus(copiedStatus)
+    task.delay(2, function()
+        if oh.getStatus() == copiedStatus then
+            oh.setStatus(oldStatus)
+        end
+    end)
     return nil
 end)
 

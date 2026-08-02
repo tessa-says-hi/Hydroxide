@@ -523,9 +523,6 @@ function CallInspector.new(parent)
     close.MouseButton1Click:Connect(function()
         inspector:Hide()
     end)
-    overlay.MouseButton1Click:Connect(function()
-        inspector:Hide()
-    end)
 
     return inspector
 end

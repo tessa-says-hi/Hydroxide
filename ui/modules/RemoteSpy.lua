@@ -266,7 +266,7 @@ local removeContext = ContextMenuButton.new("rbxassetid://4702831188", "Remove L
 local pauseContext = ContextMenuButton.new("rbxassetid://4907151581", "Pause Capture")
 local exportContext = ContextMenuButton.new("rbxassetid://4800244808", "Export Calls")
 
-local scriptContext = ContextMenuButton.new("rbxassetid://4800244808", "Generate Script")
+local copyRemoteContext = ContextMenuButton.new("rbxassetid://4800244808", "Copy Runnable Remote")
 local callingScriptContext = ContextMenuButton.new("rbxassetid://4800244808", "Get Calling Script")
 local spyClosureContext = ContextMenuButton.new("rbxassetid://4666593447", "Spy Calling Function")
 local repeatCallContext = ContextMenuButton.new("rbxassetid://4907151581", "Repeat Call")
@@ -306,7 +306,7 @@ local remoteListMenuSelected = ContextMenu.new({
     removeContextSelected,
 })
 local remoteLogsMenu = ContextMenu.new({
-    scriptContext,
+    copyRemoteContext,
     callingScriptContext,
     spyClosureContext,
     repeatCallContext,
@@ -727,7 +727,6 @@ function ArgsLog.new(log, callInfo)
     button:SetRightCallback(function()
         local incoming = callInfo.direction == "incoming"
 
-        scriptContext:SetText(incoming and "Generate Local Replay" or "Generate Script")
         callingScriptContext:SetText(incoming and "Get Receiver Scripts" or "Get Calling Script")
         spyClosureContext:SetText(incoming and "Spy Receiver Functions" or "Spy Calling Function")
         repeatCallContext:SetText(incoming and "Replay Incoming Locally" or "Repeat Call")
@@ -1521,7 +1520,7 @@ local function getInspectorSource(generator, log, call)
     return "-- Unable to generate code\n-- " .. tostring(source):gsub("\n", "\n-- ")
 end
 
-scriptContext:SetCallback(function()
+copyRemoteContext:SetCallback(function()
     local call = selected.call
 
     if not setClipboard then
@@ -1533,15 +1532,15 @@ scriptContext:SetCallback(function()
     elseif not call or not selected.remoteLog then
         return MessageBox.Show(
             "No call selected",
-            "Select a call before generating a script.",
+            "Select a call before copying a runnable remote.",
             MessageType.OK
         )
     end
 
     local oldStatus = oh.getStatus()
     oh.setStatus(
-        call.direction == "incoming" and "Generating local receiver replay ..."
-            or "Generating RemoteSpy Pseudocode ..."
+        call.direction == "incoming" and "Generating runnable local replay ..."
+            or "Generating runnable remote ..."
     )
     local ok, source = pcall(createCallSource, selected.remoteLog, call)
     if not ok then
@@ -1549,9 +1548,20 @@ scriptContext:SetCallback(function()
         return MessageBox.Show("Script generation failed", tostring(source), MessageType.OK)
     end
 
-    setClipboard(source)
-    local copiedStatus = call.direction == "incoming" and "Local replay copied to clipboard"
-        or "Generated script copied to clipboard"
+    local runnable, compileReason = loadstring(source, "Hydroxide Runnable Remote")
+    if not runnable then
+        oh.setStatus(oldStatus)
+        return MessageBox.Show("Generated call is not runnable", tostring(compileReason), MessageType.OK)
+    end
+
+    local copied, clipboardReason = pcall(setClipboard, source)
+    if not copied then
+        oh.setStatus(oldStatus)
+        return MessageBox.Show("Clipboard failed", tostring(clipboardReason), MessageType.OK)
+    end
+
+    local copiedStatus = call.direction == "incoming" and "Runnable local replay copied to clipboard"
+        or "Runnable remote copied to clipboard"
     oh.setStatus(copiedStatus)
     task.delay(2, function()
         if oh.getStatus() == copiedStatus then
@@ -1794,6 +1804,7 @@ end
 local function getInspectorActions(group, data)
     if group == "Code" then
         return {
+            { Id = "copyRunnable", Icon = "rbxassetid://4800244808", Text = "Copy Runnable Remote" },
             { Id = "callingCode", Icon = "rbxassetid://4800244808", Text = "Calling Code" },
             { Id = "interceptCode", Icon = "rbxassetid://4907151581", Text = "Intercept Code" },
             { Id = "functionInfo", Icon = "rbxassetid://4666593447", Text = "Function Info" },
@@ -1877,7 +1888,9 @@ local function handleInspectorAction(action, inspector, data)
     data.Button = call.Button or data.Button
     selectCall(log, call, data.Button)
 
-    if action == "callingCode" then
+    if action == "copyRunnable" then
+        copyRemoteContext.Callback()
+    elseif action == "callingCode" then
         inspector:SetCode(getInspectorSource(createCallSource, log, call))
     elseif action == "interceptCode" then
         inspector:SetCode(getInspectorSource(createInterceptSource, log, call))

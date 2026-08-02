@@ -1,6 +1,7 @@
 local TextService = game:GetService("TextService")
 
 local SyntaxHighlighter = import("ui/controls/SyntaxHighlighter")
+local TextSelection = import("ui/controls/TextSelection")
 local CallInspector = {}
 
 local colors = {
@@ -12,6 +13,7 @@ local colors = {
     muted = Color3.fromRGB(135, 135, 135),
     panel = Color3.fromRGB(17, 17, 17),
     row = Color3.fromRGB(26, 26, 26),
+    selection = Color3.fromRGB(38, 79, 120),
     selected = Color3.fromRGB(42, 42, 42),
     text = Color3.fromRGB(220, 220, 220),
 }
@@ -91,6 +93,8 @@ local function countLines(text)
     return math.max(lines, 1), maxWidth
 end
 
+local scheduleTextSelection
+
 local function updateTextCanvas(inspector)
     local text = inspector.RawText or inspector.TextBox.Text
     local lines, maxWidth = countLines(text)
@@ -99,6 +103,7 @@ local function updateTextCanvas(inspector)
     local height = math.max(viewport.Y - 12, lines * 16 + 12)
     inspector.TextBox.Size = UDim2.fromOffset(width, height)
     inspector.Highlight.Size = inspector.TextBox.Size
+    inspector.SelectionLayer.Size = inspector.TextBox.Size
     inspector.TextContent.CanvasSize = UDim2.fromOffset(width + 8, height + 8)
 end
 
@@ -112,11 +117,79 @@ local function renderText(inspector, text, mode)
     local ok, highlighted = pcall(highlighter, text)
     inspector.Highlight.Text = ok and highlighted or SyntaxHighlighter.escape(text)
     updateTextCanvas(inspector)
+    scheduleTextSelection(inspector)
 end
 
-local function setSelectionMode(inspector, enabled)
-    inspector.Highlight.Visible = not enabled
-    inspector.TextBox.TextTransparency = enabled and 0 or 1
+local function clearTextSelection(inspector)
+    inspector.SelectionLayer.Visible = false
+    inspector.SelectionCaret.Visible = false
+    for _, range in ipairs(inspector.SelectionRanges) do
+        range.Visible = false
+    end
+end
+
+local function measureCode(text)
+    return TextService:GetTextSize(text, 13, Enum.Font.Code, Vector2.new(100000, 20)).X
+end
+
+local function getSelectionRange(inspector, index)
+    local range = inspector.SelectionRanges[index]
+    if range then
+        return range
+    end
+
+    range = create("Frame", {
+        BackgroundColor3 = colors.selection,
+        BackgroundTransparency = 0.2,
+        BorderSizePixel = 0,
+        Name = "Range",
+        ZIndex = 83,
+    }, inspector.SelectionLayer)
+    inspector.SelectionRanges[index] = range
+    return range
+end
+
+local function updateTextSelection(inspector)
+    local textBox = inspector.TextBox
+    if not textBox:IsFocused() then
+        clearTextSelection(inspector)
+        return
+    end
+
+    inspector.SelectionLayer.Visible = true
+    local ranges = TextSelection.getRanges(inspector.RawText, textBox.SelectionStart, textBox.CursorPosition)
+    for index, selection in ipairs(ranges) do
+        local range = getSelectionRange(inspector, index)
+        local width = measureCode(selection.Text)
+        if selection.IncludesNewline then
+            width += measureCode(" ")
+        end
+
+        range.Position = UDim2.fromOffset(measureCode(selection.Prefix), selection.Line * 16)
+        range.Size = UDim2.fromOffset(math.max(width, 2), 16)
+        range.Visible = true
+    end
+    for index = #ranges + 1, #inspector.SelectionRanges do
+        inspector.SelectionRanges[index].Visible = false
+    end
+
+    local caret = TextSelection.getCursor(inspector.RawText, textBox.CursorPosition)
+    inspector.SelectionCaret.Visible = #ranges == 0 and caret ~= nil
+    if caret then
+        inspector.SelectionCaret.Position = UDim2.fromOffset(measureCode(caret.Prefix), caret.Line * 16)
+    end
+end
+
+scheduleTextSelection = function(inspector)
+    if inspector.SelectionUpdatePending then
+        return
+    end
+
+    inspector.SelectionUpdatePending = true
+    task.defer(function()
+        inspector.SelectionUpdatePending = false
+        updateTextSelection(inspector)
+    end)
 end
 
 local function updateArgumentCanvas(inspector)
@@ -431,6 +504,24 @@ function CallInspector.new(parent)
     addCorner(textContent, 3)
     addStroke(textContent, Color3.fromRGB(35, 35, 35), 1)
 
+    local selectionLayer = create("Frame", {
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+        Name = "Selection",
+        Position = UDim2.fromOffset(6, 6),
+        Size = UDim2.new(1, -12, 1, -12),
+        Visible = false,
+        ZIndex = 83,
+    }, textContent)
+    local selectionCaret = create("Frame", {
+        BackgroundColor3 = colors.text,
+        BorderSizePixel = 0,
+        Name = "Caret",
+        Size = UDim2.fromOffset(1, 16),
+        Visible = false,
+        ZIndex = 86,
+    }, selectionLayer)
+
     local highlight = create("TextLabel", {
         BackgroundTransparency = 1,
         Font = Enum.Font.Code,
@@ -444,7 +535,7 @@ function CallInspector.new(parent)
         TextWrapped = false,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Top,
-        ZIndex = 83,
+        ZIndex = 84,
     }, textContent)
 
     local textBox = create("TextBox", {
@@ -463,7 +554,7 @@ function CallInspector.new(parent)
         TextWrapped = false,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Top,
-        ZIndex = 84,
+        ZIndex = 85,
     }, textContent)
 
     local footer = create("Frame", {
@@ -518,6 +609,9 @@ function CallInspector.new(parent)
     inspector.Instance = overlay
     inspector.IsVisible = CallInspector.isVisible
     inspector.RemoteIcon = remoteIcon
+    inspector.SelectionCaret = selectionCaret
+    inspector.SelectionLayer = selectionLayer
+    inspector.SelectionRanges = {}
     inspector.SelectTab = CallInspector.selectTab
     inspector.SetCode = CallInspector.setCode
     inspector.SetFunctionInfo = CallInspector.setFunctionInfo
@@ -539,10 +633,16 @@ function CallInspector.new(parent)
         updateTextCanvas(inspector)
     end)
     textBox.Focused:Connect(function()
-        setSelectionMode(inspector, true)
+        scheduleTextSelection(inspector)
     end)
     textBox.FocusLost:Connect(function()
-        setSelectionMode(inspector, false)
+        clearTextSelection(inspector)
+    end)
+    textBox:GetPropertyChangedSignal("CursorPosition"):Connect(function()
+        scheduleTextSelection(inspector)
+    end)
+    textBox:GetPropertyChangedSignal("SelectionStart"):Connect(function()
+        scheduleTextSelection(inspector)
     end)
 
     argumentTab.MouseButton1Click:Connect(function()
@@ -579,7 +679,7 @@ function CallInspector.selectTab(inspector, name)
     if inspector.TextBox:IsFocused() then
         inspector.TextBox:ReleaseFocus()
     end
-    setSelectionMode(inspector, false)
+    clearTextSelection(inspector)
     inspector.Arguments.Visible = name == "Arguments"
     inspector.TextContent.Visible = name ~= "Arguments"
     for tabName, tab in pairs(inspector.Tabs) do
@@ -625,7 +725,7 @@ function CallInspector.show(inspector, data)
     inspector.Data = data
     inspector.Title.Text = tostring(data.Title or "Remote call")
     inspector.RemoteIcon.Image = data.Icon or ""
-    setSelectionMode(inspector, false)
+    clearTextSelection(inspector)
     renderArguments(inspector, data.Arguments or {})
     inspector.Instance.Visible = true
     inspector:SelectTab(data.InitialTab or "Arguments")
@@ -636,7 +736,7 @@ function CallInspector.hide(inspector)
     if inspector.TextBox:IsFocused() then
         inspector.TextBox:ReleaseFocus()
     end
-    setSelectionMode(inspector, false)
+    clearTextSelection(inspector)
     inspector.Instance.Visible = false
     inspector.Data = nil
 end

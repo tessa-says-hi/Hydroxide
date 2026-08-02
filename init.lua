@@ -31,6 +31,7 @@ local globalMethods = {
     checkCaller = checkcaller,
     cloneRef = cloneref,
     compareInstances = compareinstances,
+    decompileScript = first(decompile, decompile_script),
     getCallbackValue = getcallbackvalue,
     getActors = first(getactors, get_actors, syn and syn.getactors),
     getCallingScript = first(getcallingscript, get_calling_script),

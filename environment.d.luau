@@ -27,6 +27,8 @@ declare function setthreadidentity(identity: number): ()
 declare function gethui(): Instance
 declare function cloneref<T>(instance: T): T
 declare function compareinstances(a: Instance, b: Instance): boolean
+declare function decompile(source: LuaSourceContainer): string
+declare function decompile_script(source: LuaSourceContainer): string
 declare function setclipboard(content: string): ()
 declare function readfile(path: string): string
 declare function writefile(path: string, content: string): ()

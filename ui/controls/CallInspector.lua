@@ -1,5 +1,6 @@
 local TextService = game:GetService("TextService")
 
+local SyntaxHighlighter = import("ui/controls/SyntaxHighlighter")
 local CallInspector = {}
 
 local colors = {
@@ -91,13 +92,26 @@ local function countLines(text)
 end
 
 local function updateTextCanvas(inspector)
-    local text = inspector.TextBox.Text
+    local text = inspector.RawText or inspector.TextBox.Text
     local lines, maxWidth = countLines(text)
     local viewport = inspector.TextContent.AbsoluteSize
     local width = math.max(viewport.X - 12, maxWidth + 14)
     local height = math.max(viewport.Y - 12, lines * 16 + 12)
     inspector.TextBox.Size = UDim2.fromOffset(width, height)
+    inspector.Highlight.Size = inspector.TextBox.Size
     inspector.TextContent.CanvasSize = UDim2.fromOffset(width + 8, height + 8)
+end
+
+local function renderText(inspector, text, mode)
+    text = tostring(text or "")
+    inspector.RawText = text
+    inspector.TextBox.Text = text
+
+    local highlighter = mode == "FunctionInfo" and SyntaxHighlighter.highlightFunctionInfo
+        or SyntaxHighlighter.highlight
+    local ok, highlighted = pcall(highlighter, text)
+    inspector.Highlight.Text = ok and highlighted or SyntaxHighlighter.escape(text)
+    updateTextCanvas(inspector)
 end
 
 local function updateArgumentCanvas(inspector)
@@ -412,6 +426,22 @@ function CallInspector.new(parent)
     addCorner(textContent, 3)
     addStroke(textContent, Color3.fromRGB(35, 35, 35), 1)
 
+    local highlight = create("TextLabel", {
+        BackgroundTransparency = 1,
+        Font = Enum.Font.Code,
+        Name = "Highlight",
+        Position = UDim2.fromOffset(6, 6),
+        RichText = true,
+        Size = UDim2.new(1, -12, 1, -12),
+        Text = "",
+        TextColor3 = colors.text,
+        TextSize = 13,
+        TextWrapped = false,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        ZIndex = 83,
+    }, textContent)
+
     local textBox = create("TextBox", {
         BackgroundTransparency = 1,
         ClearTextOnFocus = false,
@@ -424,6 +454,7 @@ function CallInspector.new(parent)
         TextColor3 = colors.text,
         TextEditable = false,
         TextSize = 13,
+        TextTransparency = 1,
         TextWrapped = false,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Top,
@@ -478,6 +509,7 @@ function CallInspector.new(parent)
     inspector.Data = nil
     inspector.GetData = CallInspector.getData
     inspector.Hide = CallInspector.hide
+    inspector.Highlight = highlight
     inspector.Instance = overlay
     inspector.IsVisible = CallInspector.isVisible
     inspector.RemoteIcon = remoteIcon
@@ -541,9 +573,12 @@ function CallInspector.selectTab(inspector, name)
 
     if name ~= "Arguments" then
         local data = inspector.Data or {}
-        inspector.TextBox.Text = name == "Code" and (data.Code or "Code unavailable")
-            or (data.FunctionInfo or "Function information unavailable")
-        updateTextCanvas(inspector)
+        renderText(
+            inspector,
+            name == "Code" and (data.Code or "Code unavailable")
+                or (data.FunctionInfo or "Function information unavailable"),
+            name
+        )
     end
 
     closeMenu(inspector)
@@ -556,8 +591,7 @@ function CallInspector.setCode(inspector, source, selectTab)
     if selectTab ~= false then
         inspector:SelectTab("Code")
     elseif inspector.ActiveTab == "Code" then
-        inspector.TextBox.Text = tostring(source or "")
-        updateTextCanvas(inspector)
+        renderText(inspector, source, "Code")
     end
 end
 
@@ -568,8 +602,7 @@ function CallInspector.setFunctionInfo(inspector, information, selectTab)
     if selectTab ~= false then
         inspector:SelectTab("FunctionInfo")
     elseif inspector.ActiveTab == "FunctionInfo" then
-        inspector.TextBox.Text = tostring(information or "")
-        updateTextCanvas(inspector)
+        renderText(inspector, information, "FunctionInfo")
     end
 end
 

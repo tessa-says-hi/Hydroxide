@@ -31,6 +31,7 @@ Running the loader again calls `oh.Exit()` first, disconnects listeners, restore
 - Captures incoming `OnClientEvent` traffic for reliable and unreliable events.
 - Captures `RemoteFunction.OnClientInvoke` arguments and returns when the executor supports `getcallbackvalue`.
 - Preserves trailing `nil` arguments and multiple return values with packed tuples.
+- Resolves copied event payloads back to retained calls by stable call ID for executor compatibility.
 - Records direction, method, calling script/function when available, errors, blocked state, and duration.
 - Keeps a bounded per-remote history, with pause/resume, search, export, replay, block, ignore, and argument conditions.
 - Supports mouse, touch dragging, and long-press context menus.

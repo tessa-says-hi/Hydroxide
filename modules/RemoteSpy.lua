@@ -462,8 +462,35 @@ local function startIncomingCapture()
     trackConnection(game.DescendantRemoving:Connect(removeRemote))
 end
 
+local function resolveRetainedCall(instance, call)
+    if type(call) ~= "table" then
+        return call
+    end
+
+    local remote = currentRemotes[instance]
+    if not remote or table.find(remote.Logs, call) then
+        return call
+    end
+
+    local callId = call.id
+    if callId == nil then
+        return call
+    end
+
+    for index = #remote.Logs, 1, -1 do
+        local retained = remote.Logs[index]
+        if retained.id == callId then
+            return retained
+        end
+    end
+
+    return call
+end
+
 local function connectEvent(callback)
-    local connection = remoteDataEvent.Event:Connect(callback)
+    local connection = remoteDataEvent.Event:Connect(function(instance, call, eventType)
+        callback(instance, resolveRetainedCall(instance, call), eventType)
+    end)
     eventSet = true
     trackConnection(connection)
     return connection

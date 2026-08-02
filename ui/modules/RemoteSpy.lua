@@ -30,6 +30,7 @@ local ListQuery = RemoteList.Query
 local ListSearch = ListQuery.Search
 local ListRefresh = ListQuery.Refresh
 local ListResults = RemoteList.Results.Clip.Content
+local ListStatus = RemoteList.Results.Clip.ResultStatus
 
 local RemoteLogs = Page.Logs
 local LogsButtons = RemoteLogs.Buttons
@@ -91,6 +92,43 @@ local selected = {
     logs = {},
     conditions = {},
 }
+
+local function updateRemoteStatus()
+    local hasLogs = next(currentLogs) ~= nil
+    local hasVisibleLogs = false
+
+    for _, log in pairs(currentLogs) do
+        if log.Button.Instance.Visible then
+            hasVisibleLogs = true
+            break
+        end
+    end
+
+    ListStatus.Text = hasLogs and "No remotes match filters" or "No remotes logged"
+    ListStatus.Visible = not hasVisibleLogs
+end
+
+local function findRetainedCall(remote, callInfo)
+    if type(callInfo) ~= "table" then
+        return
+    end
+
+    if table.find(remote.Logs, callInfo) then
+        return callInfo
+    end
+
+    local callId = callInfo.id
+    if callId == nil then
+        return
+    end
+
+    for index = #remote.Logs, 1, -1 do
+        local retained = remote.Logs[index]
+        if retained.id == callId then
+            return retained
+        end
+    end
+end
 
 local function updateSelection(items, item, enabled)
     local index = table.find(items, item)
@@ -412,6 +450,7 @@ function Log.new(remote)
     log.IncrementCalls = Log.incrementCalls
     log.DecrementCalls = Log.decrementCalls
     log.Remove = Log.remove
+    updateRemoteStatus()
     return log
 end
 
@@ -596,6 +635,7 @@ function Log.remove(log)
     end
     currentLogs[remoteInstance] = nil
     removed[remoteInstance] = true
+    updateRemoteStatus()
 end
 
 -- UI Functionality
@@ -606,6 +646,7 @@ local function refreshLogs()
     end
 
     remoteList:Recalculate()
+    updateRemoteStatus()
 end
 
 for _i, flag in pairs(ListFlags:GetChildren()) do
@@ -632,6 +673,7 @@ ListSearch.FocusLost:Connect(function(returned)
         end
 
         remoteList:Recalculate()
+        updateRemoteStatus()
         ListSearch.Text = ""
     end
 end)
@@ -1188,14 +1230,29 @@ conditionValueType:SetCallback(function(_dropdown, selected)
     icon.Border.Image = iconCondition
 end)
 
-Methods.ConnectEvent(function(remoteInstance, callInfo)
+local function addRemoteCall(remoteInstance, callInfo)
     if not removed[remoteInstance] then
         local remote = currentRemotes[remoteInstance]
-        if remote and table.find(remote.Logs, callInfo) then
+        local retainedCall = remote and findRetainedCall(remote, callInfo)
+        if retainedCall then
             local log = currentLogs[remoteInstance] or Log.new(remote)
-            log:IncrementCalls(callInfo)
+            log:IncrementCalls(retainedCall)
         end
     end
+end
+
+Methods.ConnectEvent(function(remoteInstance, callInfo)
+    addRemoteCall(remoteInstance, callInfo)
 end)
+
+for remoteInstance, remote in pairs(currentRemotes) do
+    local newestCall = remote.Logs[#remote.Logs]
+    if newestCall then
+        addRemoteCall(remoteInstance, newestCall)
+    end
+end
+
+remoteList:Recalculate()
+updateRemoteStatus()
 
 return RemoteSpy

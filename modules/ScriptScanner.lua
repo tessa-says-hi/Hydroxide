@@ -2,30 +2,58 @@ local ScriptScanner = {}
 local LocalScript = import("objects/LocalScript")
 
 local requiredMethods = {
-    ["getGc"] = true,
-    ["getSenv"] = true,
-    ["getProtos"] = true,
-    ["getConstants"] = true,
-    ["getScriptClosure"] = true,
-    ["isXClosure"] = true
+    getConstants = true,
+    getProtos = true,
+    getScriptClosure = true,
+    getSenv = true,
 }
 
+local function addScript(results, instance, query)
+    if
+        typeof(instance) ~= "Instance"
+        or not instance:IsA("LocalScript")
+        or results[instance]
+        or not instance.Name:lower():find(query, 1, true)
+    then
+        return
+    end
+
+    local ok, value = pcall(LocalScript.new, instance)
+    if ok then
+        results[instance] = value
+    end
+end
+
 local function scan(query)
+    query = tostring(query or ""):lower()
     local scripts = {}
-    query = query or ""
+    local enumerated = false
+    local enumerators = {}
 
-    for _i, v in pairs(getGc()) do
-        if type(v) == "function" and not isXClosure(v) then
-            local script = rawget(getfenv(v), "script")
+    if getScripts then
+        table.insert(enumerators, getScripts)
+    end
+    if getRunningScripts then
+        table.insert(enumerators, getRunningScripts)
+    end
 
-            if typeof(script) == "Instance" and 
-                not scripts[script] and 
-                script:IsA("LocalScript") and 
-                script.Name:lower():find(query) and
-                getScriptClosure(script) and
-                pcall(function() getsenv(script) end)
-            then
-                scripts[script] = LocalScript.new(script)
+    for _, enumerate in ipairs(enumerators) do
+        local ok, values = pcall(enumerate)
+        if ok then
+            enumerated = true
+            for _, instance in pairs(values) do
+                addScript(scripts, instance, query)
+            end
+        end
+    end
+
+    if not enumerated and getGc and isXClosure then
+        for _, value in pairs(getGc()) do
+            if type(value) == "function" and not isXClosure(value) then
+                local ok, env = pcall(getfenv, value)
+                if ok and type(env) == "table" then
+                    addScript(scripts, rawget(env, "script"), query)
+                end
             end
         end
     end

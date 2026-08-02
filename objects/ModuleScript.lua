@@ -1,14 +1,15 @@
 local ModuleScript = {}
 
 function ModuleScript.new(instance)
-    local moduleScript = {}
-    local closure = getScriptClosure(instance)
+    local closure = assert(getScriptClosure(instance), "Could not read module closure")
+    local moduleScript = {
+        Instance = instance,
+    }
 
-    moduleScript.Instance = instance
-    moduleScript.Constants = getConstants(closure)
-    moduleScript.Protos = getProtos(closure)
-    --moduleScript.ReturnValue = require(instance) // causes detection
-
+    local constantsOk, constants = pcall(getConstants, closure)
+    local protosOk, protos = pcall(getProtos, closure)
+    moduleScript.Constants = constantsOk and constants or {}
+    moduleScript.Protos = protosOk and protos or {}
     return moduleScript
 end
 

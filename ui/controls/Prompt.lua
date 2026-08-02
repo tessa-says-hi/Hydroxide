@@ -14,6 +14,10 @@ function Prompt.new(instance)
 end
 
 function Prompt.show(prompt)
+    if currentPrompt and currentPrompt ~= prompt then
+        currentPrompt:Hide()
+    end
+
     currentPrompt = prompt
 
     Prompts.PromptShadow.Visible = true

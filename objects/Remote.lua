@@ -1,114 +1,139 @@
 local Remote = {}
 
 function Remote.new(instance)
-    local remote = {}
+    local remote = {
+        Blocked = false,
+        BlockedArgs = {},
+        Calls = 0,
+        Ignored = false,
+        IgnoredArgs = {},
+        Instance = instance,
+        Logs = {},
+        MaxLogs = (oh and oh.Config and oh.Config.MaxRemoteLogs) or 500,
+        TotalCalls = 0,
+    }
 
-    remote.Instance = instance
-    remote.Logs = {}
-    remote.Calls = 0
-    remote.Blocked = false
-    remote.Ignored = false
-    remote.Clear = Remote.clear
-    remote.Block = Remote.block
-    remote.Ignore = Remote.ignore
-    remote.BlockedArgs = {}
-    remote.IgnoredArgs = {}
-    remote.BlockArg = Remote.blockArg
-    remote.IgnoreArg = Remote.ignoreArg
     remote.AreArgsBlocked = Remote.areArgsBlocked
     remote.AreArgsIgnored = Remote.areArgsIgnored
-    remote.IncrementCalls = Remote.incrementCalls
+    remote.Block = Remote.block
+    remote.BlockArg = Remote.blockArg
+    remote.Clear = Remote.clear
     remote.DecrementCalls = Remote.decrementCalls
-
+    remote.Ignore = Remote.ignore
+    remote.IgnoreArg = Remote.ignoreArg
+    remote.IncrementCalls = Remote.incrementCalls
+    remote.Unblock = Remote.unblock
+    remote.Unignore = Remote.unignore
     return remote
 end
 
 function Remote.clear(remote)
     remote.Calls = 0
-    remote.Logs = {}
+    remote.TotalCalls = 0
+    table.clear(remote.Logs)
 end
 
-function Remote.block(remote)
-    remote.Blocked = not remote.Blocked
+function Remote.block(remote, enabled)
+    if enabled == nil then
+        remote.Blocked = not remote.Blocked
+    else
+        remote.Blocked = enabled == true
+    end
+
+    return remote.Blocked
 end
 
-function Remote.ignore(remote)  
-    remote.Ignored = not remote.Ignored
+function Remote.unblock(remote)
+    remote.Blocked = false
+end
+
+function Remote.ignore(remote, enabled)
+    if enabled == nil then
+        remote.Ignored = not remote.Ignored
+    else
+        remote.Ignored = enabled == true
+    end
+
+    return remote.Ignored
+end
+
+function Remote.unignore(remote)
+    remote.Ignored = false
+end
+
+local function getConditionBranch(storage, index)
+    local branch = storage[index]
+    if not branch then
+        branch = {
+            types = {},
+            values = {},
+        }
+        storage[index] = branch
+    end
+
+    return branch
 end
 
 function Remote.blockArg(remote, index, value, byType)
-    local blockedArgs = remote.BlockedArgs
-    local blockedIndex = blockedArgs[index]
-
-    if not blockedIndex then
-        blockedIndex = {
-            types = {},
-            values = {}
-        }
-        blockedArgs[index] = blockedIndex
-    end
-
+    local branch = getConditionBranch(remote.BlockedArgs, index)
     if byType then
-        blockedIndex.types[value] = true
-    else
-        blockedIndex.values[value] = true
+        branch.types[value] = true
+    elseif value ~= nil then
+        branch.values[value] = true
     end
 end
 
 function Remote.ignoreArg(remote, index, value, byType)
-    local ignoredArgs = remote.IgnoredArgs
-    local indexIgnore = ignoredArgs[index]
-
-    if not indexIgnore then
-        indexIgnore = {
-            types = {},
-            values = {}
-        }
-
-        ignoredArgs[index] = indexIgnore
-    end
-
+    local branch = getConditionBranch(remote.IgnoredArgs, index)
     if byType then
-        indexIgnore.types[value] = true
-    else
-        indexIgnore.values[value] = true
+        branch.types[value] = true
+    elseif value ~= nil then
+        branch.values[value] = true
     end
+end
+
+local function matchesConditions(storage, args)
+    local count = args.n or #args
+    for index = 1, count do
+        local branch = storage[index]
+        if branch then
+            local value = args[index]
+            if branch.types[typeof(value)] or (value ~= nil and branch.values[value] == true) then
+                return true
+            end
+        end
+    end
+
+    return false
 end
 
 function Remote.areArgsBlocked(remote, args)
-    local blockedArgs = remote.BlockedArgs
-
-    for index, value in pairs(args) do
-        local indexBlock = blockedArgs[index]
-        
-        if indexBlock and ( indexBlock.types[typeof(value)] or indexBlock.values[value] ~= nil ) then
-            return true
-        end
-    end
+    return matchesConditions(remote.BlockedArgs, args)
 end
 
 function Remote.areArgsIgnored(remote, args)
-    local ignoredArgs = remote.IgnoredArgs
+    return matchesConditions(remote.IgnoredArgs, args)
+end
 
-    for index, value in pairs(args) do
-        local indexIgnore = ignoredArgs[index]
+function Remote.incrementCalls(remote, call)
+    remote.TotalCalls = remote.TotalCalls + 1
 
-        if indexIgnore and ( indexIgnore.types[typeof(value)] or indexIgnore.values[value] ~= nil ) then
-            return true
-        end
+    if #remote.Logs >= remote.MaxLogs then
+        call.evicted = table.remove(remote.Logs, 1)
     end
+
+    table.insert(remote.Logs, call)
+    remote.Calls = #remote.Logs
+    return call.evicted
 end
 
-function Remote.incrementCalls(remote, vargs)
-    remote.Calls = remote.Calls + 1
-    table.insert(remote.Logs, vargs)
-end
+function Remote.decrementCalls(remote, call)
+    local index = table.find(remote.Logs, call)
+    if index then
+        table.remove(remote.Logs, index)
+    end
 
-function Remote.decrementCalls(remote, vargs)
-    local logs = remote.Logs
-
-    remote.Calls = remote.Calls - 1
-    table.remove(logs, table.find(logs, vargs))
+    remote.Calls = #remote.Logs
 end
 
 return Remote

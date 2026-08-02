@@ -79,13 +79,11 @@ local elementTypeDropdown = Dropdown.new(modifyElementType)
 local constants = {
     tempElementColor = Color3.fromRGB(30, 10, 10),
     tempUpvalueColor = Color3.fromRGB(40, 20, 20),
-    tempBorderColor = Color3.fromRGB(20, 0, 0)
+    tempBorderColor = Color3.fromRGB(20, 0, 0),
 }
 
 local function typeMismatchMessage()
-    MessageBox.Show("Error", 
-        "Value does not match selected type",
-        MessageType.OK)
+    MessageBox.Show("Error", "Value does not match selected type", MessageType.OK)
 end
 
 local function addElement(upvalueLog, upvalue, index, value, temporary)
@@ -138,7 +136,7 @@ local function addUpvalue(upvalue, temporary)
     local index = upvalue.Index
     local value = upvalue.Value
     local valueType = type(value)
-    
+
     if valueType == "table" then
         upvalueLog = Assets.Table:Clone()
         local height = 25
@@ -152,7 +150,7 @@ local function addUpvalue(upvalue, temporary)
             for i, v in pairs(upvalue.Scanned) do
                 local elementLog = addElement(upvalueLog, upvalue, i, v)
                 elementLog.Parent = upvalueLog.Elements
-                
+
                 height = height + elementLog.AbsoluteSize.Y + 5
             end
         end
@@ -167,13 +165,13 @@ local function addUpvalue(upvalue, temporary)
         end
 
         if valueType == "function" then
-            local closureName = getInfo(value).name or ''
-            upvalueLog.Value.Text = (closureName == '' and "Unnamed function") or closureName
+            local closureName = getInfo(value).name or ""
+            upvalueLog.Value.Text = (closureName == "" and "Unnamed function") or closureName
         else
             upvalueLog.Value.Text = toString(value)
         end
     end
-    
+
     upvalueLog.Name = index
     upvalueLog.Index.Text = index
     upvalueLog.Value.TextColor3 = oh.Constants.Syntax[valueType]
@@ -202,8 +200,8 @@ local function updateUpvalue(closureLog, upvalue)
     local valueType = type(newValue)
 
     if valueType == "function" then
-        local closureName = getInfo(newValue).name or ''
-        upvalueLog.Value.Text = (closureName == '' and "Unnamed function") or closureName
+        local closureName = getInfo(newValue).name or ""
+        upvalueLog.Value.Text = (closureName == "" and "Unnamed function") or closureName
     elseif valueType == "table" and upvalue.Scanned then
         for i, v in pairs(upvalue.Scanned) do
             updateElement(upvalueLog, i, v)
@@ -250,11 +248,11 @@ function Log.new(closure)
 
     instance.Size = UDim2.new(1, 0, 0, logHeight)
     instance:FindFirstChild("Name").Text = closure.Name
-    
+
     listButton:SetRightCallback(function()
         selectedLog = log
     end)
-    
+
     currentUpvalues[closure.Data] = log
 
     upvalueList:Recalculate()
@@ -265,7 +263,7 @@ function Log.update(log)
     for _i, upvalue in pairs(log.Closure.Upvalues) do
         updateUpvalue(log, upvalue)
     end
-    
+
     for _i, upvalue in pairs(log.Closure.TemporaryUpvalues) do
         updateUpvalue(log, upvalue)
     end
@@ -274,7 +272,7 @@ end
 local function addUpvalues()
     local query = SearchBox.Text
 
-    if query:gsub(' ', '') ~= '' then
+    if query:gsub(" ", "") ~= "" then
         if not tonumber(query) and query:len() <= 1 then
             return
         end
@@ -286,7 +284,7 @@ local function addUpvalues()
         currentUpvalues = {}
 
         for _i, closure in pairs(Methods.Scan(query, deepSearchFlag)) do
-            if closure.Name == '' then
+            if closure.Name == "" then
                 unnamedFunctions[closure.Data] = closure
             else
                 Log.new(closure)
@@ -313,7 +311,7 @@ upvalueList:BindContextMenu(closureContextMenu)
 
 deepSearch:SetCallback(function(enabled)
     deepSearchFlag = enabled
-    
+
     if enabled then
         MessageBox.Show("Notice", "Deep searching may result in longer scan times!", MessageType.OK)
     end
@@ -351,7 +349,7 @@ local function setValue(valueText, value, dropdown)
         end
     else
         local success, result = pcall(loadstring("return " .. raw))
-        
+
         if success then
             if typeof(result) == dropdown.Selected.Name then
                 newValue = result
@@ -359,9 +357,7 @@ local function setValue(valueText, value, dropdown)
                 typeMismatchMessage()
             end
         else
-            MessageBox.Show("Error",
-                "There is an error in your input",
-                MessageType.OK)
+            MessageBox.Show("Error", "There is an error in your input", MessageType.OK)
         end
     end
 
@@ -376,10 +372,7 @@ local function typeDropdownAdjust(dropdown, button)
 end
 
 modifyUpvalueButtons.Set.MouseButton1Click:Connect(function()
-    local newValue = setValue(
-        modifyUpvalueValue.Text, 
-        selectedUpvalue.Value, 
-        upvalueTypeDropdown)
+    local newValue = setValue(modifyUpvalueValue.Text, selectedUpvalue.Value, upvalueTypeDropdown)
 
     if newValue ~= nil then
         selectedUpvalue:Set(newValue)
@@ -396,11 +389,8 @@ end)
 
 modifyElementButtons.Set.MouseButton1Click:Connect(function()
     local upvalueValue = selectedUpvalue.Value
-    
-    local newValue = setValue(
-        modifyElementValue.Text, 
-        upvalueValue[selectedElement], 
-        elementTypeDropdown)
+
+    local newValue = setValue(modifyElementValue.Text, upvalueValue[selectedElement], elementTypeDropdown)
 
     if newValue ~= nil then
         upvalueValue[selectedElement] = newValue
@@ -419,7 +409,8 @@ upvalueTypeDropdown:SetCallback(typeDropdownAdjust)
 elementTypeDropdown:SetCallback(typeDropdownAdjust)
 
 local function generateScriptFormat(elementIndex)
-    local generatedScript = [[-- Generated by Hydroxide's Upvalue Scanner: https://github.com/tessa-says-hi/Hydroxide
+    local generatedScript =
+        [[-- Generated by Hydroxide's Upvalue Scanner: https://github.com/tessa-says-hi/Hydroxide
 
 local aux = loadstring(game:HttpGet("https://raw.githubusercontent.com/tessa-says-hi/Hydroxide/revision/ohaux.lua"))()
 
@@ -434,14 +425,16 @@ local value = YOUR_NEW_VALUE_HERE
 
     if elementIndex and elementIndex ~= "nil" then
         generatedScript = generatedScript .. ("local elementIndex = %s\n"):format(elementIndex)
-        generatedScript = generatedScript .. "\n\n-- DO NOT RELY ON THIS FEATURE TO PRODUCE %s FUNCTIONAL SCRIPTS\n"
+        generatedScript = generatedScript
+            .. "\n\n-- DO NOT RELY ON THIS FEATURE TO PRODUCE %s FUNCTIONAL SCRIPTS\n"
         return generatedScript .. "debug.getupvalue(closure, upvalueIndex)[elementIndex] = value"
     end
-    
-    return generatedScript .. "\n\n-- DO NOT RELY ON THIS FEATURE TO PRODUCE %s FUNCTIONAL SCRIPTS\ndebug.setupvalue(closure, upvalueIndex, value)"
+
+    return generatedScript
+        .. "\n\n-- DO NOT RELY ON THIS FEATURE TO PRODUCE %s FUNCTIONAL SCRIPTS\ndebug.setupvalue(closure, upvalueIndex, value)"
 end
 
-local function generateScript(elementIndex) 
+local function generateScript(elementIndex)
     local index = selectedUpvalue.Index
     local closure = selectedUpvalue.Closure
     local closureData = closure.Data
@@ -457,8 +450,8 @@ local function generateScript(elementIndex)
     end
 
     for idx, constant in pairs(getConstants(closureData)) do
-        if currentIndex > 5 then 
-            break 
+        if currentIndex > 5 then
+            break
         elseif type(constant) ~= "function" then
             currentConstants[idx] = constant
             currentIndex = currentIndex + 1
@@ -467,8 +460,8 @@ local function generateScript(elementIndex)
 
     setClipboard(
         generatedScript:format(
-            (closureScript and getInstancePath(closureScript)) or "nil", 
-            closure.Name, 
+            (closureScript and getInstancePath(closureScript)) or "nil",
+            closure.Name,
             index,
             tableToString(currentConstants),
             "100%"
@@ -498,14 +491,17 @@ spyClosureContext:SetCallback(function()
         if result == false then
             MessageBox.Show("Already hooked", "You are already spying " .. closure.Name)
         elseif result == nil then
-            MessageBox.Show("Cannot hook", ('Cannot hook "%s" because there are no upvalues'):format(closure.Name))
+            MessageBox.Show(
+                "Cannot hook",
+                ('Cannot hook "%s" because there are no upvalues'):format(closure.Name)
+            )
         end
     end
 end)
 
 viewUpvaluesContext:SetCallback(function()
     if selectedLog then
-        local temporaryUpvalues = selectedLog.TemporaryUpvalues 
+        local temporaryUpvalues = selectedLog.TemporaryUpvalues
         local instance = selectedLog.Instance
         local newHeight = 0
 
@@ -519,20 +515,20 @@ viewUpvaluesContext:SetCallback(function()
             selectedLog.Closure.TemporaryUpvalues = {}
         else
             local closure = selectedLog.Closure
-            
+
             temporaryUpvalues = {}
 
-            for i,v in pairs(getUpvalues(closure)) do
+            for i, v in pairs(getUpvalues(closure)) do
                 if not closure.Upvalues[i] then
                     local upvalue = Upvalue.new(closure, i, v)
-                    
+
                     if type(v) == "table" then
                         upvalue.Scanned = {}
                     end
-                    
+
                     local upvalueLog = addUpvalue(upvalue, true)
                     upvalueLog.Parent = instance.Upvalues
-                    
+
                     newHeight = newHeight + upvalueLog.AbsoluteSize.Y + 5
                     temporaryUpvalues[i] = upvalueLog
                     closure.TemporaryUpvalues[i] = upvalue
@@ -554,7 +550,7 @@ end)
 getScriptContext:SetCallback(function()
     if selectedLog then
         local script = getfenv(selectedLog.Closure.Data).script
-            
+
         if typeof(script) == "Instance" then
             setClipboard(getInstancePath(script))
         end
@@ -578,7 +574,7 @@ viewElementsContext:SetCallback(function()
         local scanned = selectedUpvalue.Scanned
         temporaryElements = {}
 
-        for i,v in pairs(selectedUpvalue.Value) do
+        for i, v in pairs(selectedUpvalue.Value) do
             if not scanned[i] then
                 local elementLog = addElement(selectedUpvalueLog, selectedUpvalue, i, v, true)
                 elementLog.Parent = selectedUpvalueLog.Elements
@@ -586,7 +582,7 @@ viewElementsContext:SetCallback(function()
                 newHeight = newHeight + elementLog.AbsoluteSize.Y + 5
                 temporaryElements[i] = elementLog
             end
-        end 
+        end
 
         selectedUpvalue.TemporaryElements = temporaryElements
     end
@@ -603,11 +599,12 @@ local function changeUpvalue()
         local index = selectedUpvalue.Index
         local indexFrame = modifyUpvalueContent.Index
         local indexNumber = indexFrame.Number
-        local indexWidth = TextService:GetTextSize(tostring(index), 18, "SourceSans", indexFrame.AbsoluteSize).X
-        
+        local indexWidth =
+            TextService:GetTextSize(tostring(index), 18, "SourceSans", indexFrame.AbsoluteSize).X
+
         indexNumber.Text = index
         indexNumber.Size = UDim2.new(0, indexWidth, 0, 25)
-        
+
         modifyUpvalue:Show()
     end
 end
@@ -622,11 +619,11 @@ changeElementContext:SetCallback(function()
         local indexFrame = modifyElementContent.Index
         local indexLabel = indexFrame.Data
         local indexWidth = TextService:GetTextSize(index, 18, "SourceSans", indexFrame.AbsoluteSize).X
-        
+
         indexLabel.Text = index
         indexLabel.TextColor3 = oh.Constants.Syntax[indexType]
         indexLabel.Size = UDim2.new(0, indexWidth, 0, 25)
-        
+
         modifyElement:Show()
     end
 end)
@@ -637,4 +634,4 @@ oh.Events.UpdateUpvalues = RunService.Heartbeat:Connect(function()
     end
 end)
 
-return UpvalueScanner 
+return UpvalueScanner

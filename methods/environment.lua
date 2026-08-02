@@ -1,22 +1,16 @@
-local client = game:GetService("Players").LocalPlayer
-local control = client.PlayerScripts:FindFirstChild("Control Script")
-
 local methods = {}
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local playerScripts = player and player:FindFirstChildOfClass("PlayerScripts")
+local control = playerScripts
+    and (playerScripts:FindFirstChild("PlayerModule") or playerScripts:FindFirstChild("ControlScript"))
 
 local function secureCall(closure, ...)
-    local env = getfenv(1)
-    local renv = getrenv()
-    local results
-    
-    setfenv(1, setmetatable({ script = script }, {
-        __index = renv
-    }))
+    if syn and syn.secure_call and control then
+        return syn.secure_call(closure, control, ...)
+    end
 
-    results = (syn and { syn.secure_call(closure, control, ...) }) or { closure(...) }
-
-    setfenv(1, env)
-
-    return unpack(results)
+    return closure(...)
 end
 
 methods.secureCall = secureCall

@@ -45,8 +45,6 @@ local NewConditionButtons = NewConditionInner.Buttons
 local NewConditionContent = NewConditionInner.Content
 local NewConditionIndex = NewConditionContent.Index
 
-local currentClosures = Methods.CurrentClosures
-
 local icons = {
     type = "rbxassetid://4702850565",
     status = "rbxassetid://4909102841",
@@ -54,7 +52,7 @@ local icons = {
     block = "rbxassetid://4891641806",
     unblock = "rbxassetid://4891642508",
     ignore = "rbxassetid://4842578510",
-    unignore = "rbxassetid://4842578818"
+    unignore = "rbxassetid://4842578818",
 }
 
 local constants = {
@@ -62,7 +60,7 @@ local constants = {
     textWidth = Vector2.new(1337420, 20),
     normalColor = Color3.new(1, 1, 1),
     blockedColor = Color3.fromRGB(170, 0, 0),
-    ignoredColor = Color3.fromRGB(100, 100, 100)
+    ignoredColor = Color3.fromRGB(100, 100, 100),
 }
 
 local newClosureCondition = Prompt.new(NewClosureCondition)
@@ -79,8 +77,17 @@ local removed = {}
 
 local selected = {
     logs = {},
-    conditions = {}
+    conditions = {},
 }
+
+local function updateSelection(items, item, enabled)
+    local index = table.find(items, item)
+    if enabled and not index then
+        table.insert(items, item)
+    elseif not enabled and index then
+        table.remove(items, index)
+    end
+end
 
 local conditionContext = ContextMenuButton.new("rbxassetid://4891633802", "Call Conditions")
 local clearContext = ContextMenuButton.new("rbxassetid://4892169181", "Clear Calls")
@@ -89,8 +96,6 @@ local blockContext = ContextMenuButton.new("rbxassetid://4891641806", "Block Cal
 local removeContext = ContextMenuButton.new("rbxassetid://4702831188", "Remove Log")
 
 local callingScriptContext = ContextMenuButton.new("rbxassetid://4800244808", "Get Calling Script")
-local spyClosureContext = ContextMenuButton.new("rbxassetid://4666593447", "Spy Calling Function")
-
 local removeConditionContext = ContextMenuButton.new("rbxassetid://4702831188", "Remove Condition")
 
 local clearContextSelected = ContextMenuButton.new("rbxassetid://4892169181", "Clear Calls")
@@ -102,30 +107,56 @@ local removeContextSelected = ContextMenuButton.new("rbxassetid://4702831188", "
 
 local removeConditionContextSelected = ContextMenuButton.new("rbxassetid://4702831188", "Remove Conditions")
 
-local closureListMenu = ContextMenu.new({ conditionContext, clearContext, ignoreContext, blockContext, removeContext })
-local closureListMenuSelected = ContextMenu.new({ clearContextSelected, ignoreContextSelected, unignoreContextSelected, blockContextSelected, unblockContextSelected, removeContextSelected })
-local hookLogsMenu = ContextMenu.new({ callingScriptContext, spyClosureContext, repeatCallContext })
+local closureListMenu =
+    ContextMenu.new({ conditionContext, clearContext, ignoreContext, blockContext, removeContext })
+local closureListMenuSelected = ContextMenu.new({
+    clearContextSelected,
+    ignoreContextSelected,
+    unignoreContextSelected,
+    blockContextSelected,
+    unblockContextSelected,
+    removeContextSelected,
+})
+local hookLogsMenu = ContextMenu.new({ callingScriptContext })
 local closureConditionMenu = ContextMenu.new({ removeConditionContext })
 local closureConditionMenuSelected = ContextMenu.new({ removeConditionContextSelected })
 
 local function checkCurrentIgnored()
-    local selectedHook = (selected.hookLog or selected.logContext).Hook
+    if not selected.hookLog then
+        return
+    end
+
+    local selectedHook = selected.hookLog.Hook
 
     LogsButtons.Ignore.Label.Text = (selectedHook.Ignored and "Unignore") or "Ignore"
     LogsButtons.Ignore.Icon.Image = (selectedHook.Ignored and icons.unignore) or icons.ignore
 
-    local newWidth = TextService:GetTextSize((selectedHook.Ignored and "Unignore") or "Ignore", 18, "SourceSans", constants.textWidth).X + 30
+    local newWidth = TextService:GetTextSize(
+        (selectedHook.Ignored and "Unignore") or "Ignore",
+        18,
+        "SourceSans",
+        constants.textWidth
+    ).X + 30
 
     LogsButtons.Ignore.Size = UDim2.new(0, newWidth, 0, 20)
 end
 
 local function checkCurrentBlocked()
-    local selectedHook = (selected.hookLog or selected.logContext).Hook
+    if not selected.hookLog then
+        return
+    end
+
+    local selectedHook = selected.hookLog.Hook
 
     LogsButtons.Block.Label.Text = (selectedHook.Blocked and "Unblock") or "Block"
     LogsButtons.Block.Icon.Image = (selectedHook.Blocked and icons.unblock) or icons.block
 
-    local newWidth = TextService:GetTextSize((selectedHook.Blocked and "Unblock") or "Block", 18, "SourceSans", constants.textWidth).X + 30
+    local newWidth = TextService:GetTextSize(
+        (selectedHook.Blocked and "Unblock") or "Block",
+        18,
+        "SourceSans",
+        constants.textWidth
+    ).X + 30
 
     LogsButtons.Block.Size = UDim2.new(0, newWidth, 0, 20)
 end
@@ -133,7 +164,7 @@ end
 local Condition = {}
 function Condition.new(closure, status, index, value, type)
     local condition = {}
-    local instance = Assets.ConditionPod:Clone() 
+    local instance = Assets.ConditionPod:Clone()
     local content = instance.Content
     local identifiers = instance.Identifiers
     local button = ListButton.new(instance, closureConditions)
@@ -162,16 +193,10 @@ function Condition.new(closure, status, index, value, type)
         selected.condition = condition
     end)
 
-    button:SetSelectedCallback(function()
-        if not table.find(selected.conditions, condition) then
-            table.insert(selected.conditions, condition)
-        end
+    button:SetSelectedCallback(function(enabled)
+        updateSelection(selected.conditions, condition, enabled)
     end)
-    
-    if byType then
-        instance.Identifiers.ByType.Visible = false
-    end 
-    
+
     identifiers.ByType.Visible = type ~= nil
     identifiers.Status.Image = (status == "Ignore" and icons.ignore) or icons.block
     identifiers.Status.Border.Image = identifiers.Status.Image
@@ -194,7 +219,7 @@ function Condition.toggle(condition)
     local blockedArgs = closure.BlockedArgs[index]
     local argStatus = (condition.Status == "Ignore" and ignoredArgs) or blockedArgs
 
-    if value then
+    if value ~= nil then
         argStatus.values[value] = condition.Enabled or nil
     else
         argStatus.types[condition.Type] = condition.Enabled or nil
@@ -205,7 +230,7 @@ function Condition.remove(condition)
     local branch = condition.Branch
     condition.Button:Remove()
 
-    if condition.Value then
+    if condition.Value ~= nil then
         branch.values[condition.Value] = nil
     else
         branch.types[condition.Type] = nil
@@ -219,7 +244,8 @@ local function createConditions(hook)
     ClosureLogs.Visible = false
     ClosureConditions.Visible = true
 
-    local nameLength = TextService:GetTextSize(hook.Closure.Name, 18, "SourceSans", constants.textWidth).X + 20
+    local nameLength = TextService:GetTextSize(hook.Closure.Name, 18, "SourceSans", constants.textWidth).X
+        + 20
 
     ConditionsClosure.Icon.Image = oh.Constants.Types["function"]
     ConditionsClosure.Label.Text = hook.Closure.Name
@@ -266,9 +292,12 @@ function Log.new(hook)
     local closure = hook.Closure
     local original = closure.Data
 
-    local normalAnimation = TweenService:Create(buttonName, constants.fadeLength, { TextColor3 = constants.normalColor })
-    local blockAnimation = TweenService:Create(buttonName, constants.fadeLength, { TextColor3 = constants.blockedColor })
-    local ignoreAnimation = TweenService:Create(buttonName, constants.fadeLength, { TextColor3 = constants.ignoredColor })
+    local normalAnimation =
+        TweenService:Create(buttonName, constants.fadeLength, { TextColor3 = constants.normalColor })
+    local blockAnimation =
+        TweenService:Create(buttonName, constants.fadeLength, { TextColor3 = constants.blockedColor })
+    local ignoreAnimation =
+        TweenService:Create(buttonName, constants.fadeLength, { TextColor3 = constants.ignoredColor })
 
     buttonInfo.Protos.Text = #getProtos(original)
     buttonInfo.Upvalues.Text = #getUpvalues(original)
@@ -281,9 +310,9 @@ function Log.new(hook)
         if selected.hookLog then
             hookLogs:Clear()
         end
-        
+
         local nameLength = TextService:GetTextSize(closure.Name, 18, "SourceSans", constants.textWidth).X + 20
-        
+
         selected.hookLog = log
 
         for _i, call in pairs(hook.Logs) do
@@ -307,10 +336,12 @@ function Log.new(hook)
 
         if selected.hookLog ~= log then
             if #hook.Logs > 400 then
-                MessageBox.Show("Warning",
+                MessageBox.Show(
+                    "Warning",
                     "This closure seems to have a lot of calls, opening this may cause your game to freeze for a few seconds.\n\nContinue?",
                     MessageType.YesNo,
-                    viewLogs)
+                    viewLogs
+                )
             else
                 viewLogs()
             end
@@ -338,10 +369,8 @@ function Log.new(hook)
         setContext(oldContext)
     end)
 
-    listButton:SetSelectedCallback(function()
-        if not table.find(selected.logs, log) then
-            table.insert(selected.logs, log)
-        end
+    listButton:SetSelectedCallback(function(enabled)
+        updateSelection(selected.logs, log, enabled)
     end)
 
     currentLogs[hook] = log
@@ -358,19 +387,24 @@ function Log.new(hook)
     log.PlayNormal = Log.playNormal
     log.Adjust = Log.adjust
     log.IncrementCalls = Log.incrementCalls
-    log.Decrementcalls = Log.decrementCalls
+    log.DecrementCalls = Log.decrementCalls
 
     return log
 end
 
 local function createArg(instance, index, value)
     local arg = Assets.Arg:Clone()
-    local valueType = type(value)
+    local valueType = typeof(value)
+    local luaType = type(value)
 
     arg.Icon.Image = oh.Constants.Types[valueType]
+        or oh.Constants.Types[luaType]
+        or oh.Constants.Types.userdata
     arg.Index.Text = index
     arg.Label.Text = toString(value)
     arg.Label.TextColor3 = oh.Constants.Syntax[valueType]
+        or oh.Constants.Syntax[luaType]
+        or oh.Constants.Syntax.userdata
     arg.Parent = instance.Contents
 
     return arg.AbsoluteSize.Y + 5
@@ -387,10 +421,11 @@ function ArgsLog.new(log, call)
     local button = ListButton.new(instance, hookLogs)
     local height = 0
 
-    if #args == 0 then
+    local count = args.n or #args
+    if count == 0 then
         height = height + createArg(instance, 1, nil)
     else
-        for i = 1, #args do
+        for i = 1, count do
             local v = args[i]
             height = height + createArg(instance, i, v)
         end
@@ -402,8 +437,14 @@ function ArgsLog.new(log, call)
     end)
 
     button.Instance.Size = button.Instance.Size + UDim2.new(0, 0, 0, height)
+    call.Button = button
+    button:SetRemoveCallback(function()
+        if call.Button == button then
+            call.Button = nil
+        end
+    end)
 
-    return button 
+    return button
 end
 
 function Log.playIgnore(log)
@@ -423,7 +464,8 @@ function Log.adjust(log)
     local logIcon = logInstance.Icon
     local logName = logInstance:FindFirstChild("Name")
 
-    local callWidth = TextService:GetTextSize(logInstance.Calls.Text, 18, "SourceSans", constants.textWidth).X + 10
+    local callWidth = TextService:GetTextSize(logInstance.Calls.Text, 18, "SourceSans", constants.textWidth).X
+        + 10
     local labelWidth = callWidth + 21
 
     logInstance.Calls.Size = UDim2.new(0, callWidth, 0, 20)
@@ -449,27 +491,28 @@ function Log.incrementCalls(log, call)
     local logInstance = log.Button.Instance
     local hook = log.Hook
 
-    hook.Calls = hook.Calls + 1
-    local calls = hook.Calls
+    local calls = hook.TotalCalls
+
+    if call.evicted and call.evicted.Button then
+        call.evicted.Button:Remove()
+        call.evicted.Button = nil
+    end
     logInstance.Calls.Text = (calls < 10000 and calls) or "..."
 
     log:Adjust()
-    
-    if selected.hookLog == log then
+
+    if selected.hookLog == log and not call.Button then
         ArgsLog.new(log, call)
         hookLogs:Recalculate()
     end
 end
 
-function Log.decrementCalls(log, args)
+function Log.decrementCalls(log, call)
     local buttonInstance = log.Button.Instance
     local hook = log.Hook
 
-    hook.Calls = Hook.calls - 1
-
-    local calls = hook.Calls
-
-    -- hook:DecrementCalls(args)
+    hook:DecrementCalls(call)
+    local calls = hook.TotalCalls
     buttonInstance.Calls.Text = (calls < 10000 and calls) or "..."
     log:Adjust()
 end
@@ -478,6 +521,14 @@ function Log.remove(log)
     local hook = log.Hook
 
     log.Button:Remove()
+    if selected.hookLog == log then
+        hookLogs:Clear()
+        selected.hookLog = nil
+    end
+    if selected.logContext == log then
+        selected.logContext = nil
+    end
+    hook:Remove()
     currentLogs[hook] = nil
     removed[hook] = true
 end
@@ -487,7 +538,7 @@ ListSearch.FocusLost:Connect(function(returned)
     if returned then
         for hook, log in pairs(currentLogs) do
             local instance = log.Button.Instance
-            instance.Visible = not (instance.Visible and not hook.Closure.Name:lower():find(ListSearch.Text))
+            instance.Visible = hook.Closure.Name:lower():find(ListSearch.Text:lower(), 1, true) ~= nil
         end
 
         closureList:Recalculate()
@@ -502,6 +553,9 @@ end)
 LogsBack.MouseButton1Click:Connect(function()
     ClosureLogs.Visible = false
     ClosureList.Visible = true
+    hookLogs:Clear()
+    selected.hookLog = nil
+    selected.callingScript = nil
 end)
 
 LogsButtons.Ignore.MouseButton1Click:Connect(function()
@@ -543,7 +597,8 @@ LogsButtons.Clear.MouseButton1Click:Connect(function()
 end)
 
 LogsButtons.Conditions.MouseButton1Click:Connect(function()
-    selected.conditionLog = selected.logContext or selected.hookLog
+    selected.conditionLog = selected.hookLog
+    selected.conditionReturnToLogs = true
 
     createConditions(selected.conditionLog.Hook)
 end)
@@ -551,7 +606,7 @@ end)
 ConditionsBack.MouseButton1Click:Connect(function()
     ClosureConditions.Visible = false
 
-    if selected.hookLog then
+    if selected.conditionReturnToLogs then
         ClosureLogs.Visible = true
     else
         ClosureList.Visible = true
@@ -563,8 +618,8 @@ ConditionsButtons.New.MouseButton1Click:Connect(function()
 end)
 
 NewConditionButtons.Add.MouseButton1Click:Connect(function()
-    if not conditionStatus.Selected then
-        return MessageBox.Show("Error", "Invalid condition status", MessageType.OK)
+    if not conditionStatus.Selected or not conditionType.Selected or not conditionValueType.Selected then
+        return MessageBox.Show("Error", "Select a status, type, and value mode", MessageType.OK)
     end
 
     local status = conditionStatus.Selected.Name
@@ -573,11 +628,11 @@ NewConditionButtons.Add.MouseButton1Click:Connect(function()
     local value = NewConditionContent.Value.Input.Text
 
     if status ~= "Ignore" and status ~= "Block" then
-        MessageBox.Show("Error", "Invalid condition status", MessageType.OK)
+        return MessageBox.Show("Error", "Invalid condition status", MessageType.OK)
     elseif not oh.Constants.Types[type] and not isUserdata(type) then
-        MessageBox.Show("Error", "Invalid condition type", MessageType.OK)
+        return MessageBox.Show("Error", "Invalid condition type", MessageType.OK)
     elseif valueType ~= "Value" and valueType ~= "Type" then
-        MessageBox.Show("Error", "Invalid condition value association", MessageType.OK)
+        return MessageBox.Show("Error", "Invalid condition value association", MessageType.OK)
     elseif valueType == "Value" then
         if type == "string" then
             value = toString(value)
@@ -585,7 +640,11 @@ NewConditionButtons.Add.MouseButton1Click:Connect(function()
             value = tonumber(value)
 
             if not value then
-                return MessageBox.Show("Error", "Your input does not match the type you selected", MessageType.OK)
+                return MessageBox.Show(
+                    "Error",
+                    "Your input does not match the type you selected",
+                    MessageType.OK
+                )
             end
         elseif type == "boolean" then
             if value == "true" then
@@ -593,16 +652,28 @@ NewConditionButtons.Add.MouseButton1Click:Connect(function()
             elseif value == "false" then
                 value = false
             else
-                return MessageBox.Show("Error", "Your input does not match the type you selected", MessageType.OK)
+                return MessageBox.Show(
+                    "Error",
+                    "Your input does not match the type you selected",
+                    MessageType.OK
+                )
             end
-        else 
+        else
             local success, result = pcall(loadstring("return " .. value))
 
             if valueType == "Value" then
                 if not success then
-                    return MessageBox.Show("Error", "There was an error interpreting your input value", MessageType.OK)
+                    return MessageBox.Show(
+                        "Error",
+                        "There was an error interpreting your input value",
+                        MessageType.OK
+                    )
                 elseif typeof(result) ~= type then
-                    return MessageBox.Show("Error", "Your input does not match the type you selected", MessageType.OK)
+                    return MessageBox.Show(
+                        "Error",
+                        "Your input does not match the type you selected",
+                        MessageType.OK
+                    )
                 else
                     value = result
                 end
@@ -615,6 +686,9 @@ NewConditionButtons.Add.MouseButton1Click:Connect(function()
     local selectedHook = selected.conditionLog.Hook
     local argIndex = tonumber(NewConditionIndex.Value.Input.Text)
     local byType = valueType == "Type"
+    if not argIndex or argIndex < 1 or argIndex % 1 ~= 0 then
+        return MessageBox.Show("Error", "Argument index must be a positive integer", MessageType.OK)
+    end
 
     if status == "Block" then
         selectedHook:BlockArg(argIndex, value, byType)
@@ -629,6 +703,7 @@ NewConditionButtons.Add.MouseButton1Click:Connect(function()
     end
 
     newClosureCondition:Hide()
+    return nil
 end)
 
 NewConditionButtons.Cancel.MouseButton1Click:Connect(function()
@@ -636,12 +711,12 @@ NewConditionButtons.Cancel.MouseButton1Click:Connect(function()
 end)
 
 NewConditionIndex.Add.MouseButton1Click:Connect(function()
-    local newIndex = tonumber(NewConditionIndex.Value.Input.Text) + 1
+    local newIndex = (tonumber(NewConditionIndex.Value.Input.Text) or 1) + 1
     NewConditionIndex.Value.Input.Text = newIndex
 end)
 
 NewConditionIndex.Sub.MouseButton1Click:Connect(function()
-    local newIndex = tonumber(NewConditionIndex.Value.Input.Text) - 1
+    local newIndex = (tonumber(NewConditionIndex.Value.Input.Text) or 1) - 1
     NewConditionIndex.Value.Input.Text = (newIndex <= 0 and 1) or newIndex
 end)
 
@@ -653,9 +728,9 @@ NewConditionIndex.Value.Input.FocusLost:Connect(function()
     end
 end)
 
-
 conditionContext:SetCallback(function()
-    selected.conditionLog = selected.logContext or selected.hookLog
+    selected.conditionLog = selected.logContext
+    selected.conditionReturnToLogs = false
 
     createConditions(selected.conditionLog.Hook)
 end)
@@ -667,7 +742,7 @@ end)
 ignoreContext:SetCallback(function()
     local selectedLog = selected.logContext
     local hook = selectedLog.Hook
-    
+
     hook:Ignore()
 
     checkCurrentIgnored()
@@ -688,7 +763,7 @@ blockContext:SetCallback(function()
     hook:Block()
 
     checkCurrentBlocked()
-    
+
     if hook.Blocked then
         selectedLog:PlayBlock()
     elseif hook.Ignored then
@@ -702,32 +777,27 @@ removeContext:SetCallback(function()
     selected.logContext:Remove()
 end)
 
-
 ignoreContextSelected:SetCallback(function()
     for _i, log in pairs(selected.logs) do
         local hook = log.Hook
 
-        if not hook.Ignored then
-            hook:Ignore()
-        end
+        hook:Ignore(true)
 
-        if log.Blocked then
+        if hook.Blocked then
             log:PlayBlock()
         elseif hook.Ignored then
             log:PlayIgnore()
         end
     end
 
-    selected.logs = {}
+    closureList:DeselectAll()
 end)
 
 unignoreContextSelected:SetCallback(function()
     for _i, log in pairs(selected.logs) do
         local hook = log.Hook
 
-        if hook.Ignored then
-            hook:Ignore()
-        end
+        hook:Ignore(false)
 
         if hook.Blocked then
             log:PlayBlock()
@@ -736,16 +806,14 @@ unignoreContextSelected:SetCallback(function()
         end
     end
 
-    selected.logs = {}
+    closureList:DeselectAll()
 end)
 
 blockContextSelected:SetCallback(function()
     for _i, log in pairs(selected.logs) do
         local hook = log.Hook
 
-        if not hook.Blocked then
-            hook:Block()
-        end
+        hook:Block(true)
 
         if hook.Blocked then
             log:PlayBlock()
@@ -754,16 +822,14 @@ blockContextSelected:SetCallback(function()
         end
     end
 
-    selected.logs = {}
+    closureList:DeselectAll()
 end)
 
 unblockContextSelected:SetCallback(function()
     for _i, log in pairs(selected.logs) do
         local hook = log.Hook
 
-        if hook.Blocked then
-            hook:Block()
-        end
+        hook:Block(false)
 
         if hook.Ignored then
             log:PlayIgnore()
@@ -772,7 +838,7 @@ unblockContextSelected:SetCallback(function()
         end
     end
 
-    selected.logs = {}
+    closureList:DeselectAll()
 end)
 
 clearContextSelected:SetCallback(function()
@@ -780,25 +846,41 @@ clearContextSelected:SetCallback(function()
         log:Clear()
     end
 
-    selected.logs = {}
+    closureList:DeselectAll()
 end)
 
 removeContextSelected:SetCallback(function()
-    for _i, log in pairs(selected.logs) do
+    local logs = table.clone(selected.logs)
+    closureList:DeselectAll()
+    for _i, log in pairs(logs) do
         log:Remove()
     end
 
     closureList:Recalculate()
-    selected.logs = {}
 end)
 
 callingScriptContext:SetCallback(function()
+    if not selected.callingScript then
+        return MessageBox.Show(
+            "Calling script unavailable",
+            "The executor did not provide a calling script for this call.",
+            MessageType.OK
+        )
+    elseif not setClipboard then
+        return MessageBox.Show(
+            "Clipboard unavailable",
+            "Your executor does not expose setclipboard.",
+            MessageType.OK
+        )
+    end
+
     local oldStatus = oh.getStatus()
 
     oh.setStatus("Copying " .. selected.callingScript.Name .. "'s path")
     setClipboard(getInstancePath(selected.callingScript))
-    wait(0.25)
+    task.wait(0.25)
     oh.setStatus(oldStatus)
+    return nil
 end)
 
 removeConditionContext:SetCallback(function()
@@ -807,33 +889,33 @@ removeConditionContext:SetCallback(function()
 end)
 
 removeConditionContextSelected:SetCallback(function()
-    for _i, condition in pairs(selected.conditions) do
+    local conditions = table.clone(selected.conditions)
+    closureConditions:DeselectAll()
+    for _i, condition in pairs(conditions) do
         condition:Remove()
     end
-
-    selected.conditions = {}
 end)
 
 conditionStatus:SetCallback(function(_dropdown, selected)
     local iconCondition = (selected.Name == "Ignore" and icons.ignore) or icons.block
-    local icon = NewConditionContent.Status.Icon 
+    local icon = NewConditionContent.Status.Icon
 
     icon.Image = iconCondition
     icon.Border.Image = iconCondition
 end)
 
 conditionType:SetCallback(function(_dropdown, selected)
-    local icon = NewConditionContent.Type.Icon 
+    local icon = NewConditionContent.Type.Icon
     local typeIcons = oh.Constants.Types
     local iconCondition = typeIcons[selected.Name] or typeIcons["userdata"]
-    
+
     icon.Image = iconCondition
     icon.Border.Image = iconCondition
 end)
 
 conditionValueType:SetCallback(function(_dropdown, selected)
     local iconCondition = (selected.Name == "Type" and icons.type) or oh.Constants.Types["integral"]
-    local icon = NewConditionContent.ValueType.Icon 
+    local icon = NewConditionContent.ValueType.Icon
 
     icon.Image = iconCondition
     icon.Border.Image = iconCondition
@@ -843,11 +925,11 @@ Methods.SetEvent(function(hook, call)
     local oldContext = getContext()
     setContext(7)
 
-    if not removed[hook] then
+    if not removed[hook] and table.find(hook.Logs, call) then
         local log = currentLogs[hook] or Log.new(hook)
         log:IncrementCalls(call)
     end
-    
+
     setContext(oldContext)
 end)
 

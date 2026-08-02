@@ -14,7 +14,7 @@ local requiredMethods = {
     ScriptScanner = import("modules/ScriptScanner").RequiredMethods,
     ModuleScanner = import("modules/ModuleScanner").RequiredMethods,
     ClosureSpy = import("modules/ClosureSpy").RequiredMethods,
-    RemoteSpy = import("modules/RemoteSpy").RequiredMethods
+    RemoteSpy = import("modules/RemoteSpy").RequiredMethods,
 }
 
 local constants = {
@@ -22,10 +22,10 @@ local constants = {
     tabSelected = Color3.fromRGB(45, 45, 45),
     iconSelected = Color3.fromRGB(255, 255, 255),
     tabUnselected = Color3.fromRGB(20, 20, 20),
-    iconUnselected = Color3.fromRGB(127, 127, 127)
+    iconUnselected = Color3.fromRGB(127, 127, 127),
 }
 
-local selectedTab 
+local selectedTab
 local selectedPage = Pages.Home
 
 local function methodsCheck(methods)
@@ -68,8 +68,10 @@ local function selectTab(tabName)
     tab.ImageColor3 = constants.tabSelected
     tab.Icon.ImageColor3 = constants.iconSelected
 
-    oh.setStatus(page.Name:sub(1, 1) .. page.Name:sub(2):gsub('%u', function(c) return ' ' .. c end))
-    
+    oh.setStatus(page.Name:sub(1, 1) .. page.Name:sub(2):gsub("%u", function(c)
+        return " " .. c
+    end))
+
     selectedTab = tab
     selectedPage = page
     return true
@@ -77,16 +79,20 @@ end
 
 for _i, tab in pairs(Tabs:GetChildren()) do
     if tab:IsA("ImageButton") then
-        local selected = TweenService:Create(tab, constants.fadeLength, { ImageColor3 = constants.tabSelected })
-        local unselected = TweenService:Create(tab, constants.fadeLength, { ImageColor3 = constants.tabUnselected })
-        local iconSelected = TweenService:Create(tab.Icon, constants.fadeLength, { ImageColor3 = constants.iconSelected })
-        local iconUnselected = TweenService:Create(tab.Icon, constants.fadeLength, { ImageColor3 = constants.iconUnselected })
+        local selected =
+            TweenService:Create(tab, constants.fadeLength, { ImageColor3 = constants.tabSelected })
+        local unselected =
+            TweenService:Create(tab, constants.fadeLength, { ImageColor3 = constants.tabUnselected })
+        local iconSelected =
+            TweenService:Create(tab.Icon, constants.fadeLength, { ImageColor3 = constants.iconSelected })
+        local iconUnselected =
+            TweenService:Create(tab.Icon, constants.fadeLength, { ImageColor3 = constants.iconUnselected })
 
         animationCache[tab] = {
             selected = selected,
             unselected = unselected,
             iconSelected = iconSelected,
-            iconUnselected = iconUnselected
+            iconUnselected = iconUnselected,
         }
 
         tab.MouseButton1Click:Connect(function()

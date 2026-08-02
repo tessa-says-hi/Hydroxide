@@ -17,7 +17,6 @@ function Dropdown.new(instance)
     for _i, v in pairs(instance.Selection.Clip.List:GetChildren()) do
         if v:IsA("TextButton") then
             v.MouseButton1Click:Connect(function()
-
                 dropdown:Collapse(v.Name)
             end)
         end
@@ -28,6 +27,7 @@ function Dropdown.new(instance)
     dropdown.Instance = instance
     dropdown.SetSelected = Dropdown.setSelected
     dropdown.SetCallback = Dropdown.setCallback
+    selection.Visible = false
 
     table.insert(dropdownCache, dropdown)
 
@@ -42,9 +42,12 @@ function Dropdown.setSelected(dropdown, buttonName)
     if button then
         instance.Label.Text = buttonName
 
+        instance.Selection.Visible = false
         dropdown.Collapsed = true
         dropdown.Selected = button
-        dropdown:Callback(button)
+        if dropdown.Callback then
+            dropdown:Callback(button)
+        end
     end
 end
 
@@ -59,7 +62,9 @@ function Dropdown.collapse(dropdown, name)
             instance.Label.Text = button.Name
 
             dropdown.Selected = button
-            dropdown:Callback(button)
+            if dropdown.Callback then
+                dropdown:Callback(button)
+            end
         end
     end
 
@@ -68,17 +73,34 @@ function Dropdown.collapse(dropdown, name)
 end
 
 function Dropdown.setCallback(dropdown, callback)
-    if not dropdown.Callback then
-        dropdown.Callback = callback
-    end
+    dropdown.Callback = callback
 end
 
--- oh.Events.DropdownCollapse = UserInput.InputEnded:Connect(function(input)
---     if input.UserInputType == Enum.UserInputType.MouseButton1 then
---         for _i, dropdown in pairs(dropdownCache) do
---             dropdown:Collapse()
---         end
---     end
--- end)
+local function containsPoint(instance, point)
+    local min = instance.AbsolutePosition
+    local max = min + instance.AbsoluteSize
+    return point.X >= min.X and point.Y >= min.Y and point.X <= max.X and point.Y <= max.Y
+end
+
+oh.Events.DropdownCollapse = UserInput.InputBegan:Connect(function(input)
+    if
+        input.UserInputType ~= Enum.UserInputType.MouseButton1
+        and input.UserInputType ~= Enum.UserInputType.Touch
+    then
+        return
+    end
+
+    for _, dropdown in ipairs(dropdownCache) do
+        if not dropdown.Collapsed then
+            local instance = dropdown.Instance
+            local selection = instance.Selection
+            if
+                not containsPoint(instance, input.Position) and not containsPoint(selection, input.Position)
+            then
+                dropdown:Collapse()
+            end
+        end
+    end
+end)
 
 return Dropdown

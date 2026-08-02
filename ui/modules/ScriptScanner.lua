@@ -28,24 +28,24 @@ local InfoBack = ScriptInfo.Back
 local InfoOptions = ScriptInfo.Options.Clip.Content
 local InfoSections = ScriptInfo.Sections
 
-local InfoSource = InfoSections.Source
+local _InfoSource = InfoSections.Source
 local InfoEnvironment = InfoSections.Environment
 local InfoProtos = InfoSections.Protos
 local InfoConstants = InfoSections.Constants
 
-local EnvironmentQuery = InfoEnvironment.Query
+local _EnvironmentQuery = InfoEnvironment.Query
 local EnvironmentResultsClip = InfoEnvironment.Results.Clip
-local EnvironmentResultsStatus = EnvironmentResultsClip.ResultStatus
-local EnvironmentResults = EnvironmentResultsClip.Content
+local _EnvironmentResultsStatus = EnvironmentResultsClip.ResultStatus
+local _EnvironmentResults = EnvironmentResultsClip.Content
 
-local ConstantsQuery = InfoConstants.Query
+local _ConstantsQuery = InfoConstants.Query
 local ConstantsResultsClip = InfoConstants.Results.Clip
-local ConstantsResultsStatus = ConstantsResultsClip.ResultStatus
+local _ConstantsResultsStatus = ConstantsResultsClip.ResultStatus
 local ConstantsResults = ConstantsResultsClip.Content
 
-local ProtosQuery = InfoProtos.Query
+local _ProtosQuery = InfoProtos.Query
 local ProtosResultsClip = InfoProtos.Results.Clip
-local ProtosResultsStatus = ProtosResultsClip.ResultStatus
+local _ProtosResultsStatus = ProtosResultsClip.ResultStatus
 local ProtosResults = ProtosResultsClip.Content
 
 local scriptList = List.new(ListResults)
@@ -55,12 +55,12 @@ local constantsList = List.new(ConstantsResults)
 local scriptLogs = {}
 local selected = {}
 local icons = {
-    LocalScript = "rbxassetid://4800244808"
+    LocalScript = "rbxassetid://4800244808",
 }
 
 local constants = {
     fadeLength = TweenInfo.new(0.15),
-    textWidth = Vector2.new(133742069, 20)
+    textWidth = Vector2.new(133742069, 20),
 }
 
 local pathContext = ContextMenuButton.new("rbxassetid://4891705738", "Get Script Path")
@@ -70,20 +70,24 @@ pathContext:SetCallback(function()
     local selectedInstance = selected.logContext.LocalScript.Instance
 
     setClipboard(getInstancePath(selectedInstance))
-    MessageBox.Show("Success", ("%s's path was copied to your clipboard."):format(selectedInstance.Name), MessageType.OK)
+    MessageBox.Show(
+        "Success",
+        ("%s's path was copied to your clipboard."):format(selectedInstance.Name),
+        MessageType.OK
+    )
 end)
 
 local function createProto(index, value)
     local instance = Assets.ProtoPod:Clone()
     local information = instance.Information
-    local functionName = getInfo(value).name or ''
+    local functionName = getInfo(value).name or ""
     local indexWidth = TextService:GetTextSize(index, 18, "SourceSans", constants.textWidth).X + 8
 
-    if functionName == '' then
+    if functionName == "" then
         functionName = "Unnamed function"
         information.Label.TextColor3 = oh.Constants.Syntax["unnamed_function"]
     end
-    
+
     information.Index.Text = index
     information.Label.Text = functionName
 
@@ -99,7 +103,7 @@ local function createConstant(index, value)
     local instance = Assets.ConstantPod:Clone()
     local information = instance.Information
     local valueType = type(value)
-    local indexWidth = TextService:GetTextSize(index, 18, "SourceSans", constants.textWidth).X + 8    
+    local indexWidth = TextService:GetTextSize(index, 18, "SourceSans", constants.textWidth).X + 8
 
     information.Index.Text = index
 
@@ -109,18 +113,18 @@ local function createConstant(index, value)
     information.Label.Position = UDim2.new(0, indexWidth + 20, 0, 0)
 
     if valueType == "function" then
-        local functionName = getInfo(value).name or ''
+        local functionName = getInfo(value).name or ""
 
-        if functionName == '' then
+        if functionName == "" then
             functionName = "Unnamed function"
             information.Label.TextColor3 = oh.Constants.Syntax["unnamed_function"]
         end
-        
+
         information.Label.Text = functionName
     else
         information.Label.Text = toString(value)
     end
-    
+
     ListButton.new(instance, constantsList)
 end
 
@@ -143,22 +147,23 @@ function Log.new(localScript)
         if selected.scriptLog ~= log then
             protosList:Clear()
             constantsList:Clear()
-            
+
             ScriptList.Visible = false
             ScriptInfo.Visible = true
 
-            local nameLength = TextService:GetTextSize(scriptName, 18, "SourceSans", constants.textWidth).X + 20
-            
+            local nameLength = TextService:GetTextSize(scriptName, 18, "SourceSans", constants.textWidth).X
+                + 20
+
             InfoScript.Icon.Image = icons.LocalScript
             InfoScript.Label.Text = scriptName
             InfoScript.Label.Size = UDim2.new(0, nameLength, 0, 20)
             InfoScript.Position = UDim2.new(1, -nameLength, 0, 0)
 
-            for i,v in pairs(localScript.Protos) do
+            for i, v in pairs(localScript.Protos) do
                 createProto(i, v)
-            end 
+            end
 
-            for i,v in pairs(localScript.Constants) do
+            for i, v in pairs(localScript.Constants) do
                 createConstant(i, v)
             end
 
@@ -227,13 +232,12 @@ for _i, sectionButton in pairs(InfoOptions:GetChildren()) do
         sectionButton.MouseButton1Click:Connect(function()
             local section = InfoSections:FindFirstChild(sectionButton.Name)
             animationCache[selectedSectionButton].leave:Play()
-            
+
             selectedSection.Visible = false
             section.Visible = true
-            
+
             selectedSection = section
             selectedSectionButton = sectionButton
-
         end)
 
         sectionButton.MouseEnter:Connect(function()
@@ -250,7 +254,7 @@ for _i, sectionButton in pairs(InfoOptions:GetChildren()) do
 
         animationCache[sectionButton] = {
             enter = enterAnimation,
-            leave = leaveAnimation
+            leave = leaveAnimation,
         }
     end
 end

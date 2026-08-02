@@ -1,5 +1,4 @@
 debug.lua
-selene.toml
-roblox.toml
-.vscode
 /user
+/.luau-cache
+/.stylua-cache

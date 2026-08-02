@@ -9,12 +9,12 @@ local MessageBox = {}
 local MessageType = {}
 
 local selectedButtons
-local firstClickEvent 
+local firstClickEvent
 local secondClickEvent
 
 local constants = {
     dynamicWidth = Vector2.new(133742069, 25),
-    dynamicHeight = Vector2.new(Object.AbsoluteSize.X, 133742069)
+    dynamicHeight = Vector2.new(Object.AbsoluteSize.X, 133742069),
 }
 
 MessageType.OK = 1
@@ -24,12 +24,12 @@ MessageType.YesNo = 3
 function MessageBox.Show(title, message, messageType, firstCallback, secondCallback)
     if firstClickEvent then
         firstClickEvent:Disconnect()
-        
+
         if secondClickEvent then
             secondClickEvent:Disconnect()
         end
     end
-    
+
     local first, second
     local inner = Object.Inner
     local buttons = inner.Buttons
@@ -39,11 +39,16 @@ function MessageBox.Show(title, message, messageType, firstCallback, secondCallb
         messageWidth = 300
     end
 
-    local messageHeight = TextService:GetTextSize(message, 18, "SourceSans", Vector2.new(messageWidth - 30, 133742069)).Y + 95
+    local messageHeight = TextService:GetTextSize(
+        message,
+        18,
+        "SourceSans",
+        Vector2.new(messageWidth - 30, 133742069)
+    ).Y + 95
 
     if messageType == MessageType.OK then
         selectedButtons = buttons.OK
-        first =  selectedButtons.OK
+        first = selectedButtons.OK
     elseif messageType == MessageType.OKCancel then
         selectedButtons = buttons.OKCancel
         first = selectedButtons.OK

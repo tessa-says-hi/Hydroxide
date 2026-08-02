@@ -1,0 +1,33 @@
+name: Luau checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Check formatting
+        run: npx --yes @johnnymorganz/stylua-bin@2.5.2 --check --output-format summary .
+      - name: Check Luau syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/luau.zip \
+            https://github.com/luau-lang/luau/releases/download/0.732/luau-ubuntu.zip
+          mkdir -p /tmp/luau
+          unzip -q /tmp/luau.zip -d /tmp/luau
+          chmod +x /tmp/luau/luau-compile
+
+          while IFS= read -r -d '' file; do
+            /tmp/luau/luau-compile --only-parse "$file" >/dev/null
+          done < <(find . -type f \( -name '*.lua' -o -name '*.luau' \) \
+            ! -name 'environment.d.luau' ! -path './.git/*' -print0)

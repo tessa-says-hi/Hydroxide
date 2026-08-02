@@ -1,5 +1,3 @@
-local TextService = game:GetService("TextService")
-
 local ConstantScanner = {}
 local ClosureSpy = import("modules/ClosureSpy")
 local Methods = import("modules/ConstantScanner")
@@ -21,10 +19,10 @@ local Assets = import("rbxassetid://5042114982").ConstantScanner
 local Query = Page.Query
 local Search = Query.Search
 local SearchBox = Query.Query
- 
+
 local constantList = List.new(Page.Results.Clip.Content)
 local constantLogs = {}
-local selectedLog 
+local selectedLog
 
 local spyClosureContext = ContextMenuButton.new("rbxassetid://4666593447", "Spy Closure")
 local viewConstantsContext = ContextMenuButton.new("rbxassetid://5179169654", "View All Constants")
@@ -32,7 +30,7 @@ local getScriptContext = ContextMenuButton.new("rbxassetid://4891705738", "Get S
 
 local constants = {
     tempConstantColor = Color3.fromRGB(40, 20, 20),
-    tempBorderColor = Color3.fromRGB(20, 0, 0)
+    tempBorderColor = Color3.fromRGB(20, 0, 0),
 }
 
 constantList:BindContextMenu(ContextMenu.new({ spyClosureContext, viewConstantsContext, getScriptContext }))
@@ -42,7 +40,6 @@ local function addConstant(constant, temporary)
     local index = constant.Index
     local value = constant.Value
     local valueType = type(value)
-    local valueText = toString(value)
 
     if temporary then
         constantLog.ImageColor3 = constants.tempConstantColor
@@ -50,8 +47,8 @@ local function addConstant(constant, temporary)
     end
 
     if valueType == "function" then
-        local closureName = getInfo(value).name or ''
-        constantLog.Value.Text = (closureName == '' and "Unnamed function") or closureName
+        local closureName = getInfo(value).name or ""
+        constantLog.Value.Text = (closureName == "" and "Unnamed function") or closureName
     else
         constantLog.Value.Text = toString(value)
     end
@@ -75,7 +72,7 @@ local Log = {}
 function Log.new(closure)
     local log = {}
     local button = Assets.ClosureLog:Clone()
-    local listButton = ListButton.new(button, constantList) 
+    local listButton = ListButton.new(button, constantList)
     local constants = closure.Constants
     local logHeight = 30
 
@@ -109,7 +106,7 @@ end
 local function addConstants()
     local query = SearchBox.Text
 
-    if query:gsub(' ', '') ~= '' then
+    if query:gsub(" ", "") ~= "" then
         if not tonumber(query) and query:len() <= 1 then
             return
         end
@@ -126,7 +123,7 @@ local function addConstants()
         MessageBox.Show("Invalid query", "Your query is too short", MessageType.OK)
     end
 
-    SearchBox.Text = ''
+    SearchBox.Text = ""
 end
 
 local SpyHook = ClosureSpy.Hook
@@ -139,14 +136,17 @@ spyClosureContext:SetCallback(function()
         if result == false then
             MessageBox.Show("Already hooked", "You are already spying " .. selectedClosure.Name)
         elseif result == nil then
-            MessageBox.Show("Cannot hook", ('Cannot hook "%s" because there are no upvalues'):format(selectedClosure.Name))
+            MessageBox.Show(
+                "Cannot hook",
+                ('Cannot hook "%s" because there are no upvalues'):format(selectedClosure.Name)
+            )
         end
     end
 end)
 
 viewConstantsContext:SetCallback(function()
     if selectedLog then
-        local temporaryConstants = selectedLog.TemporaryConstants 
+        local temporaryConstants = selectedLog.TemporaryConstants
         local instance = selectedLog.Button.Instance
         local newHeight = 0
 
@@ -163,13 +163,13 @@ viewConstantsContext:SetCallback(function()
 
             temporaryConstants = {}
 
-            for i,v in pairs(getConstants(closure.Data)) do
+            for i, v in pairs(getConstants(closure.Data)) do
                 if not closure.Constants[i] then
-                    local constant = Constant.new(closure, i, v) 
+                    local constant = Constant.new(closure, i, v)
 
                     local constantLog = addConstant(constant, true)
                     constantLog.Parent = instance.Constants
-                    
+
                     newHeight = newHeight + constantLog.AbsoluteSize.Y + 5
                     temporaryConstants[i] = constantLog
                     closure.TemporaryConstants[i] = constant
@@ -191,7 +191,7 @@ end)
 getScriptContext:SetCallback(function()
     if selectedLog then
         local script = getfenv(selectedLog.Closure.Data).script
-            
+
         if typeof(script) == "Instance" then
             setClipboard(getInstancePath(script))
         end

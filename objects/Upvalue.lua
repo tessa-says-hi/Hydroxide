@@ -18,8 +18,13 @@ function Upvalue.set(upvalue, value)
     upvalue.Value = value
 end
 
-function Upvalue.update(upvalue, newValue)
-    local value = newValue or getUpvalue(upvalue.Closure.Data, upvalue.Index)
+function Upvalue.update(upvalue, ...)
+    local value
+    if select("#", ...) > 0 then
+        value = ...
+    else
+        value = getUpvalue(upvalue.Closure.Data, upvalue.Index)
+    end
     local scanned = upvalue.Scanned
 
     upvalue.Value = value
@@ -27,7 +32,7 @@ function Upvalue.update(upvalue, newValue)
     if type(value) ~= "table" and scanned then
         upvalue.Scanned = nil
     elseif scanned then
-        for i,v in pairs(value) do
+        for i, v in pairs(value) do
             if scanned[i] then
                 scanned[i] = v
             end

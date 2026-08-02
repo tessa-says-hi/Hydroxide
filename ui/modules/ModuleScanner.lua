@@ -28,7 +28,11 @@ pathContext:SetCallback(function()
     local selectedInstance = selectedLog.ModuleScript.Instance
 
     setClipboard(getInstancePath(selectedInstance))
-    MessageBox.Show("Success", ("%s's path was copied to your clipboard."):format(selectedInstance.Name), MessageType.OK)
+    MessageBox.Show(
+        "Success",
+        ("%s's path was copied to your clipboard."):format(selectedInstance.Name),
+        MessageType.OK
+    )
 end)
 
 -- Log Object
@@ -40,7 +44,7 @@ function Log.new(moduleScript)
     local moduleInstance = moduleScript.Instance
     local button = Assets.ModuleLog:Clone()
     local listButton = ListButton.new(button, moduleList)
-    
+
     button.Name = moduleInstance.Name
     button:FindFirstChild("Name").Text = moduleInstance.Name
     button.Protos.Text = #moduleScript.Protos

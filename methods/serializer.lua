@@ -107,6 +107,56 @@ local function instanceSegment(name)
     return ":FindFirstChild(" .. quoteString(name) .. ")"
 end
 
+local function getUnparentedInstancePath(instance)
+    local className = quoteString(instance.ClassName)
+    local name = quoteString(instance.Name)
+    local debugId
+    local debugIdOk, capturedDebugId = pcall(instance.GetDebugId, instance)
+    if debugIdOk and type(capturedDebugId) == "string" then
+        debugId = quoteString(capturedDebugId)
+    end
+
+    local lines = {
+        "(function()",
+        "    local getCandidates = getnilinstances or get_nil_instances or getinstances or get_instances",
+        '    assert(type(getCandidates) == "function", "The executor cannot resolve unparented instances")',
+        "    local match",
+        "    for _, candidate in pairs(getCandidates()) do",
+        "        if candidate.Parent == nil",
+        "            and candidate.ClassName == " .. className,
+        "            and candidate.Name == " .. name,
+    }
+
+    if debugId then
+        table.insert(lines, "        then")
+        table.insert(lines, "            local ok, id = pcall(candidate.GetDebugId, candidate)")
+        table.insert(lines, "            if ok and id == " .. debugId .. " then")
+        table.insert(lines, "                return candidate")
+        table.insert(lines, "            end")
+    else
+        table.insert(lines, "        then")
+        table.insert(
+            lines,
+            '            assert(match == nil, "More than one matching unparented instance exists")'
+        )
+        table.insert(lines, "            match = candidate")
+    end
+
+    table.insert(lines, "        end")
+    table.insert(lines, "    end")
+    if debugId then
+        table.insert(lines, '    error("The captured unparented instance is no longer available")')
+    else
+        table.insert(
+            lines,
+            '    return assert(match, "The captured unparented instance is no longer available")'
+        )
+    end
+    table.insert(lines, "end)()")
+
+    return table.concat(lines, "\n")
+end
+
 local function getInstancePath(instance, seen)
     if instance == game then
         return "game"
@@ -129,7 +179,7 @@ local function getInstancePath(instance, seen)
 
     local parent = instance.Parent
     if not parent then
-        return "nil"
+        return getUnparentedInstancePath(instance)
     end
 
     local parentPath = getInstancePath(parent, seen)
@@ -141,6 +191,43 @@ local function getInstancePath(instance, seen)
 end
 
 local serializeValue
+
+local reservedIdentifiers = {
+    ["and"] = true,
+    ["break"] = true,
+    ["continue"] = true,
+    ["do"] = true,
+    ["else"] = true,
+    ["elseif"] = true,
+    ["end"] = true,
+    ["false"] = true,
+    ["for"] = true,
+    ["function"] = true,
+    ["if"] = true,
+    ["in"] = true,
+    ["local"] = true,
+    ["nil"] = true,
+    ["not"] = true,
+    ["or"] = true,
+    ["repeat"] = true,
+    ["return"] = true,
+    ["then"] = true,
+    ["true"] = true,
+    ["until"] = true,
+    ["while"] = true,
+}
+
+local keyTypeRanks = {
+    number = 1,
+    string = 2,
+    boolean = 3,
+    EnumItem = 4,
+    Instance = 5,
+}
+
+local function isIdentifier(value)
+    return type(value) == "string" and value:match("^[%a_][%w_]*$") ~= nil and not reservedIdentifiers[value]
+end
 
 local function newState(options)
     options = options or {}
@@ -163,19 +250,64 @@ local function serializeTable(value, state, depth)
     local entries = {}
     local count = 0
     local indent = string.rep("    ", depth + 1)
+    local sequenceLength = 0
+    local omitted = false
 
-    for key, item in pairs(value) do
+    while sequenceLength < state.maxEntries and rawget(value, sequenceLength + 1) ~= nil do
+        sequenceLength = sequenceLength + 1
         count = count + 1
-        if count > state.maxEntries then
-            table.insert(entries, indent .. "--[[ remaining entries omitted ]]")
-            break
-        end
+        local valueText = serializeValue(rawget(value, sequenceLength), state, depth + 1)
+        table.insert(entries, indent .. valueText .. ",")
+    end
 
-        local keyText, keySupported = serializeValue(key, state, depth + 1)
-        local valueText = serializeValue(item, state, depth + 1)
-        if keySupported then
-            table.insert(entries, indent .. "[" .. keyText .. "] = " .. valueText .. ",")
+    if count >= state.maxEntries and rawget(value, sequenceLength + 1) ~= nil then
+        omitted = true
+    end
+
+    local keyedEntries = {}
+    local remaining = math.max(0, state.maxEntries - count)
+    local inspected = 0
+    for key, item in pairs(value) do
+        local isSequenceKey = type(key) == "number" and key >= 1 and key <= sequenceLength and key % 1 == 0
+        if not isSequenceKey then
+            inspected = inspected + 1
+            if inspected > remaining then
+                omitted = true
+                break
+            end
+
+            local keyText, keySupported = serializeValue(key, state, depth + 1)
+            if keySupported then
+                table.insert(keyedEntries, {
+                    key = key,
+                    keyText = keyText,
+                    rank = keyTypeRanks[typeof(key)] or 99,
+                    sortText = type(key) == "string" and key or keyText,
+                    valueText = serializeValue(item, state, depth + 1),
+                })
+            end
         end
+    end
+
+    table.sort(keyedEntries, function(left, right)
+        if left.rank ~= right.rank then
+            return left.rank < right.rank
+        end
+        return left.sortText < right.sortText
+    end)
+
+    for _, entry in ipairs(keyedEntries) do
+        local keyPrefix
+        if isIdentifier(entry.key) then
+            keyPrefix = entry.key
+        else
+            keyPrefix = "[" .. entry.keyText .. "]"
+        end
+        table.insert(entries, indent .. keyPrefix .. " = " .. entry.valueText .. ",")
+    end
+
+    if omitted then
+        table.insert(entries, indent .. "--[[ remaining entries omitted ]]")
     end
 
     state.active[value] = nil
@@ -188,13 +320,12 @@ local function serializeTable(value, state, depth)
 end
 
 local function serializeSequence(value, state, depth)
-    local values = { n = #value.Keypoints }
+    local values = {}
     for i, point in ipairs(value.Keypoints) do
         values[i] = point
     end
 
-    local text = serializeTable(values, state, depth)
-    return text:gsub('%["n"%] = %d+,%s*', "")
+    return serializeTable(values, state, depth)
 end
 
 local function readProperty(value, property)

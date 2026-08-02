@@ -42,7 +42,7 @@ local Collapse = Drag.Collapse
 
 local camera = workspace.CurrentCamera
 local viewport = camera and camera.ViewportSize or Vector2.new(1920, 1080)
-local desiredScale = 1.12
+local desiredScale = 1.3
 local fitScale = math.min((viewport.X - 40) / Base.Size.X.Offset, (viewport.Y - 40) / Base.Size.Y.Offset)
 local scale = math.min(desiredScale, math.max(0.8, fitScale))
 local interfaceScale = Instance.new("UIScale")

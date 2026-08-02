@@ -32,8 +32,10 @@ local globalMethods = {
     checkCaller = checkcaller,
     cloneRef = cloneref,
     compareInstances = compareinstances,
+    createCommChannel = first(create_comm_channel, createcommchannel),
     decompileScript = first(decompile, decompile_script),
     getCallbackValue = getcallbackvalue,
+    getCommChannel = first(get_comm_channel, getcommchannel),
     getActorStates = first(getactorstates, get_actor_states),
     getActors = first(getactors, get_actors, syn and syn.getactors),
     getCallingScript = first(getcallingscript, get_calling_script),
@@ -90,6 +92,7 @@ local globalMethods = {
     ),
     makeFolder = makefolder,
     newCClosure = newcclosure,
+    oth = oth,
     readFile = readfile,
     request = first(request, http and http.request, http_request, syn and syn.request),
     restoreFunction = restorefunction,
@@ -180,7 +183,9 @@ end
 
 local capabilities = {}
 for name, method in pairs(globalMethods) do
-    capabilities[name] = type(method) == "function" or name == "actorStateCreated"
+    capabilities[name] = type(method) == "function"
+        or name == "actorStateCreated"
+        or (name == "oth" and type(method) == "table")
 end
 
 local config = {
@@ -286,6 +291,9 @@ function runtime.RestoreHook(record)
         ok = pcall(globalMethods.hookMetaMethod, record.Object, record.Method, record.Original)
     elseif globalMethods.hookFunction then
         ok = pcall(globalMethods.hookFunction, record.Target, record.Original)
+        if not ok and globalMethods.restoreFunction then
+            ok = pcall(globalMethods.restoreFunction, record.Target)
+        end
     end
 
     if ok then

@@ -441,6 +441,9 @@ local function captureActorCall(instance, payload, actorId)
     end
 
     local args = type(payload.Args) == "table" and payload.Args or { n = 0 }
+    if type(args.n) ~= "number" then
+        args.n = tonumber(payload.ArgCount) or #args
+    end
     local remote = getRemote(instance)
     if not shouldStore(remote, args, direction) then
         return
@@ -456,6 +459,9 @@ local function captureActorCall(instance, payload, actorId)
     call.executor = payload.Executor == true
     call.payloadDropped = payload.PayloadDropped == true
     call.returns = type(payload.Returns) == "table" and payload.Returns or nil
+    if call.returns and type(call.returns.n) ~= "number" then
+        call.returns.n = tonumber(payload.ReturnCount) or #call.returns
+    end
     call.success = payload.Success == true
     storeCall(instance, remote, call)
 end
@@ -997,10 +1003,16 @@ function RemoteSpy.GetDiagnostics()
             Backend = type(getActorStates) == "function" and "states"
                 or (type(getActors) == "function" and type(runOnActor) == "function") and "actors"
                 or "none",
+            CommunicationChannelAvailable = type(createCommChannel) == "function"
+                and type(getCommChannel) == "function",
             Failures = {},
             LegacyCaptureAvailable = type(getActors) == "function" and type(runOnActor) == "function",
             MethodHookedTargets = 0,
             NamecallHookedTargets = 0,
+            OthAvailable = type(oth) == "table"
+                and type(oth.hook) == "function"
+                and type(oth.unhook) == "function",
+            OthHookedTargets = 0,
             ReadyActors = 0,
             ReadyStates = 0,
             ReadyTargets = 0,
@@ -1008,6 +1020,11 @@ function RemoteSpy.GetDiagnostics()
             StateCaptureAvailable = type(getActorStates) == "function",
             StateEvent = false,
             Targets = 0,
+            Transport = type(getActorStates) == "function"
+                    and type(createCommChannel) == "function"
+                    and type(getCommChannel) == "function"
+                    and "channel"
+                or "instance",
         }
 
     local activeHooks = 0

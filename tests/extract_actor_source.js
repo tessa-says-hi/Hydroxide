@@ -14,5 +14,7 @@ if (!match) {
 const actorSource = match[1]
     .replaceAll("__ACTOR_ID__", "1")
     .replaceAll("__BRIDGE_NAME__", '"HydroxideActorBridge_Test"')
+    .replaceAll("__CHANNEL_ID__", "nil")
+    .replaceAll("__USE_OTH__", "false")
     .replaceAll("__CAPTURE_EXECUTOR_CALLS__", "false");
 fs.writeFileSync(target, actorSource);

@@ -6,6 +6,11 @@ type LuaStateProxy = {
     Execute: (self: LuaStateProxy, source: string, ...any) -> (),
     GetActors: (self: LuaStateProxy) -> { Actor },
 }
+type CommChannelReceiver = {
+    Event: RBXScriptSignal,
+    Internal: BindableEvent,
+    connect: (self: CommChannelReceiver, callback: (...any) -> ()) -> RBXScriptConnection,
+}
 
 declare function getgenv(): { [any]: any }
 declare function identifyexecutor(): (string, string?)
@@ -17,6 +22,10 @@ declare function isexecutorclosure(target: (...any) -> ...any): boolean
 declare function getcallingscript(): Instance?
 declare function getcallbackvalue(instance: Instance, property: string): any
 declare function getconnections(signal: RBXScriptSignal): { any }
+declare function create_comm_channel(): (number, CommChannelReceiver)
+declare function createcommchannel(): (number, CommChannelReceiver)
+declare function get_comm_channel(id: number): BindableEvent
+declare function getcommchannel(id: number): BindableEvent
 declare function getactorstates(): { LuaStateProxy }
 declare function get_actor_states(): { LuaStateProxy }
 declare function getactors(): { Actor }
@@ -29,6 +38,13 @@ declare function run_on_actor(actor: Actor, source: string): any
 declare function runonactor(actor: Actor, source: string): any
 declare on_actor_state_created: any
 declare onactorstatecreated: any
+declare oth: {
+    get_original_thread: () -> thread?,
+    get_root_callback: () -> ((...any) -> ...any)?,
+    hook: (target: (...any) -> ...any, callback: (...any) -> ...any) -> (...any) -> ...any,
+    is_hook_thread: () -> boolean,
+    unhook: (target: (...any) -> ...any) -> boolean,
+}
 declare function getgc(includeTables: boolean?): { any }
 declare function getloadedmodules(excludeCore: boolean?): { ModuleScript }
 declare function getrunningscripts(): { LuaSourceContainer }

@@ -3,16 +3,34 @@ local ActorRemoteSpy = {}
 local actorSource = [==[
 local actorId = __ACTOR_ID__
 local bridgeName = __BRIDGE_NAME__
+local channelId = __CHANNEL_ID__
 local captureExecutorCalls = __CAPTURE_EXECUTOR_CALLS__
-local bridge = game:GetService("CoreGui"):FindFirstChild(bridgeName, true)
-if not bridge then
-    return
-end
+local useOth = __USE_OTH__
+local dataEvent
+local controlEvent
 
-local dataEvent = bridge:FindFirstChild("Data")
-local controlEvent = bridge:FindFirstChild("Control")
-if not dataEvent or not controlEvent then
-    return
+if channelId then
+    local getChannel = get_comm_channel or getcommchannel
+    if type(getChannel) ~= "function" then
+        return
+    end
+
+    local received, channel = pcall(getChannel, channelId)
+    if not received or typeof(channel) ~= "Instance" then
+        return
+    end
+    dataEvent = channel
+    controlEvent = channel
+else
+    local bridge = game:GetService("CoreGui"):FindFirstChild(bridgeName, true)
+    if not bridge then
+        return
+    end
+    dataEvent = bridge:FindFirstChild("Data")
+    controlEvent = bridge:FindFirstChild("Control")
+    if not dataEvent or not controlEvent then
+        return
+    end
 end
 
 local environment = type(getgenv) == "function" and getgenv() or _G
@@ -20,13 +38,15 @@ local runtimeKey = "__HydroxideActorRemoteSpy_" .. bridgeName
 local existing = rawget(environment, runtimeKey)
 if existing and existing.Active then
     local status = existing.Status or {}
-    dataEvent:Fire(actorId, nil, {
+    pcall(dataEvent.Fire, dataEvent, actorId, nil, {
         HookCount = status.HookCount or 0,
         Hooked = status.Hooked == true,
         Kind = "ready",
         MethodHooks = status.MethodHooks or 0,
         NamecallHook = status.NamecallHook == true,
+        OthHooks = status.OthHooks or 0,
         Reused = true,
+        Transport = channelId and "channel" or "instance",
     })
     return
 end
@@ -37,6 +57,8 @@ end
 local unpackValues = table.unpack or unpack
 local hookFunction = hookfunction or replaceclosure or detour_function
 local hookMetaMethod = hookmetamethod
+local restoreFunction = restorefunction
+local othLibrary = type(oth) == "table" and oth or nil
 local getNamecallMethod = getnamecallmethod or get_namecall_method
 local getConnections = getconnections or get_signal_cons
 local newCClosure = newcclosure
@@ -57,6 +79,17 @@ local function isExecutorCaller()
 
     local ok, result = pcall(checkCaller)
     return ok and result == true
+end
+
+local function getHookThread()
+    if othLibrary and type(othLibrary.get_original_thread) == "function" then
+        local ok, thread = pcall(othLibrary.get_original_thread)
+        if ok and thread then
+            return thread
+        end
+    end
+
+    return coroutine.running()
 end
 
 local function getState(remote)
@@ -170,6 +203,7 @@ local function handleCall(original, specs, instance, ...)
     if blocked then
         if not state.Ignored[direction] then
             emit(instance, {
+                ArgCount = args.n,
                 Args = args,
                 Blocked = true,
                 Direction = direction,
@@ -185,6 +219,7 @@ local function handleCall(original, specs, instance, ...)
     local started = os.clock()
     local results = pack(pcall(original, instance, ...))
     local payload = {
+        ArgCount = args.n,
         Args = args,
         Blocked = false,
         Direction = direction,
@@ -197,6 +232,7 @@ local function handleCall(original, specs, instance, ...)
 
     if results[1] then
         payload.Returns = { n = results.n - 1 }
+        payload.ReturnCount = results.n - 1
         for index = 2, results.n do
             payload.Returns[index - 1] = results[index]
         end
@@ -304,7 +340,13 @@ end
 
 local function installHooks()
     local methodHooks = 0
-    if type(hookFunction) == "function" then
+    local othHooks = 0
+    local othHook = useOth
+        and othLibrary
+        and type(othLibrary.hook) == "function"
+        and type(othLibrary.unhook) == "function"
+        and othLibrary.hook
+    if othHook or (not useOth and type(hookFunction) == "function") then
         local groups = {}
         addMethodSpec(groups, "RemoteEvent", "FireServer", false)
         addMethodSpec(groups, "UnreliableRemoteEvent", "FireServer", false)
@@ -316,23 +358,35 @@ local function installHooks()
             local currentGroup = group
             local original
             local replacement = function(instance, ...)
-                local thread = coroutine.running()
+                local thread = getHookThread()
                 if thread and namecallThreads[thread] then
                     return original(instance, ...)
                 end
 
                 return handleCall(original, currentGroup.Specs, instance, ...)
             end
-            if not currentGroup.Yields and type(newCClosure) == "function" then
-                replacement = newCClosure(replacement)
+
+            local hookKind = "function"
+            local hooked
+            local result
+            if othHook then
+                hookKind = "oth"
+                hooked, result = pcall(othHook, currentGroup.Target, replacement)
+            else
+                if not currentGroup.Yields and type(newCClosure) == "function" then
+                    replacement = newCClosure(replacement)
+                end
+                hooked, result = pcall(hookFunction, currentGroup.Target, replacement)
             end
 
-            local hooked, result = pcall(hookFunction, currentGroup.Target, replacement)
             if hooked and type(result) == "function" then
                 original = result
                 methodHooks += 1
+                if hookKind == "oth" then
+                    othHooks += 1
+                end
                 table.insert(hooks, {
-                    Kind = "function",
+                    Kind = hookKind,
                     Original = original,
                     Target = currentGroup.Target,
                 })
@@ -343,9 +397,10 @@ local function installHooks()
     local namecallHook = installNamecallHook()
     return {
         HookCount = #hooks,
-        Hooked = #hooks > 0,
+        Hooked = methodHooks > 0,
         MethodHooks = methodHooks,
         NamecallHook = namecallHook,
+        OthHooks = othHooks,
     }
 end
 
@@ -360,10 +415,15 @@ local function restore()
     end
     for index = #hooks, 1, -1 do
         local hook = hooks[index]
-        if hook.Kind == "metamethod" then
+        if hook.Kind == "oth" then
+            pcall(othLibrary.unhook, hook.Target)
+        elseif hook.Kind == "metamethod" then
             pcall(hookMetaMethod, hook.Object, hook.Method, hook.Original)
         else
-            pcall(hookFunction, hook.Target, hook.Original)
+            local restored = pcall(hookFunction, hook.Target, hook.Original)
+            if not restored and type(restoreFunction) == "function" then
+                pcall(restoreFunction, hook.Target)
+            end
         end
     end
     table.clear(namecallThreads)
@@ -397,19 +457,20 @@ end)
 
 local status = installHooks()
 runtime.Status = status
-dataEvent:Fire(actorId, nil, {
+local announced = pcall(dataEvent.Fire, dataEvent, actorId, nil, {
     GetConnections = type(getConnections) == "function",
     HookCount = status.HookCount,
     Hooked = status.Hooked,
     Kind = "ready",
     MethodHooks = status.MethodHooks,
     NamecallHook = status.NamecallHook,
+    OthHooks = status.OthHooks,
+    Transport = channelId and "channel" or "instance",
 })
 
-if not status.Hooked then
-    runtime.Active = false
+if not announced or not status.Hooked then
+    restore()
     controlConnection:Disconnect()
-    environment[runtimeKey] = nil
     return
 end
 
@@ -430,13 +491,15 @@ task.spawn(function()
 end)
 ]==]
 
-local function createSource(bridgeName, actorId, captureExecutorCalls)
+local function createSource(bridgeName, actorId, captureExecutorCalls, channelId, useOth)
     local source = actorSource
     source = source:gsub("__ACTOR_ID__", tostring(actorId))
     source = source:gsub("__BRIDGE_NAME__", function()
         return string.format("%q", bridgeName)
     end)
+    source = source:gsub("__CHANNEL_ID__", channelId and tostring(channelId) or "nil")
     source = source:gsub("__CAPTURE_EXECUTOR_CALLS__", tostring(captureExecutorCalls == true))
+    source = source:gsub("__USE_OTH__", tostring(useOth == true))
     return source
 end
 
@@ -451,22 +514,33 @@ end
 function ActorRemoteSpy.Start(onCall, onReady)
     local stateCaptureAvailable = type(getActorStates) == "function"
     local legacyCaptureAvailable = type(getActors) == "function" and type(runOnActor) == "function"
+    local communicationChannelAvailable = type(createCommChannel) == "function"
+        and type(getCommChannel) == "function"
+    local othAvailable = type(oth) == "table"
+        and type(oth.hook) == "function"
+        and type(oth.unhook) == "function"
     local backend = stateCaptureAvailable and "states" or legacyCaptureAvailable and "actors" or "none"
+    local transport = stateCaptureAvailable and communicationChannelAvailable and "channel" or "instance"
     local runtime = {
         Active = false,
         Attempts = 0,
         Available = backend ~= "none",
         Backend = backend,
+        CommunicationChannelAvailable = communicationChannelAvailable,
         Failures = {},
         LegacyCaptureAvailable = legacyCaptureAvailable,
         MethodHookedTargets = 0,
         NamecallHookedTargets = 0,
+        OthAvailable = othAvailable,
+        OthHookedTargets = 0,
         ReadyActors = 0,
         ReadyStates = 0,
         ReadyTargets = 0,
         ReportedTargets = 0,
         StateCaptureAvailable = stateCaptureAvailable,
         Targets = 0,
+        Transport = transport,
+        UseOth = stateCaptureAvailable and othAvailable,
     }
 
     function runtime:GetDiagnostics()
@@ -475,10 +549,13 @@ function ActorRemoteSpy.Start(onCall, onReady)
             Attempts = self.Attempts,
             Available = self.Available,
             Backend = self.Backend,
+            CommunicationChannelAvailable = self.CommunicationChannelAvailable,
             Failures = table.clone(self.Failures),
             LegacyCaptureAvailable = self.LegacyCaptureAvailable,
             MethodHookedTargets = self.MethodHookedTargets,
             NamecallHookedTargets = self.NamecallHookedTargets,
+            OthAvailable = self.OthAvailable,
+            OthHookedTargets = self.OthHookedTargets,
             ReadyActors = self.ReadyActors,
             ReadyStates = self.ReadyStates,
             ReadyTargets = self.ReadyTargets,
@@ -486,11 +563,14 @@ function ActorRemoteSpy.Start(onCall, onReady)
             StateCaptureAvailable = self.StateCaptureAvailable,
             StateEvent = self.StateConnection ~= nil,
             Targets = self.Targets,
+            Transport = self.Transport,
         }
     end
 
     function runtime:Owns(instance)
-        if self.Bridge == nil then
+        if instance == self.Control then
+            return true
+        elseif self.Bridge == nil then
             return false
         elseif instance == self.Bridge then
             return true
@@ -529,6 +609,11 @@ function ActorRemoteSpy.Start(onCall, onReady)
             task.defer(function()
                 oldBridge:Destroy()
             end)
+        elseif self.ChannelReceiver then
+            local receiver = self.ChannelReceiver
+            task.delay(1, function()
+                pcall(receiver.Internal.Destroy, receiver.Internal)
+            end)
         end
     end
 
@@ -536,33 +621,59 @@ function ActorRemoteSpy.Start(onCall, onReady)
         return runtime
     end
 
-    local HttpService = game:GetService("HttpService")
-    local bridge = Instance.new("Folder")
-    bridge.Name = "HydroxideActorBridge_" .. HttpService:GenerateGUID(false):gsub("-", "")
+    local bridgeName = "HydroxideActorBridge_"
+        .. game:GetService("HttpService"):GenerateGUID(false):gsub("-", "")
+    local dataSignal
+    if runtime.Transport == "channel" then
+        local created, channelId, receiver = pcall(createCommChannel)
+        if not created or type(channelId) ~= "number" or type(receiver) ~= "table" then
+            addFailure(runtime, channelId)
+            return runtime
+        end
 
-    local dataEvent = Instance.new("BindableEvent")
-    dataEvent.Name = "Data"
-    dataEvent.Parent = bridge
-    local controlEvent = Instance.new("BindableEvent")
-    controlEvent.Name = "Control"
-    controlEvent.Parent = bridge
+        local inspected, event, internal = pcall(function()
+            return receiver.Event, receiver.Internal
+        end)
+        if not inspected or typeof(internal) ~= "Instance" then
+            addFailure(runtime, "Actor communication channel is invalid.")
+            return runtime
+        end
 
-    local parented, reason = pcall(function()
-        bridge.Parent = game:GetService("CoreGui")
-    end)
-    if not parented then
-        bridge:Destroy()
-        addFailure(runtime, reason)
-        return runtime
+        runtime.ChannelId = channelId
+        runtime.ChannelReceiver = receiver
+        runtime.Control = internal
+        dataSignal = event
+    else
+        local bridge = Instance.new("Folder")
+        bridge.Name = bridgeName
+
+        local dataEvent = Instance.new("BindableEvent")
+        dataEvent.Name = "Data"
+        dataEvent.Parent = bridge
+        local controlEvent = Instance.new("BindableEvent")
+        controlEvent.Name = "Control"
+        controlEvent.Parent = bridge
+
+        local parented, reason = pcall(function()
+            bridge.Parent = game:GetService("CoreGui")
+        end)
+        if not parented then
+            bridge:Destroy()
+            addFailure(runtime, reason)
+            return runtime
+        end
+
+        runtime.Bridge = bridge
+        runtime.Control = controlEvent
+        dataSignal = dataEvent.Event
     end
 
     runtime.Active = true
-    runtime.Bridge = bridge
-    runtime.Control = controlEvent
+    runtime.BridgeName = bridgeName
 
     local records = {}
     local ready = {}
-    runtime.Connection = dataEvent.Event:Connect(function(captureId, instance, payload)
+    runtime.Connection = dataSignal:Connect(function(captureId, instance, payload)
         if type(payload) ~= "table" then
             return
         elseif payload.Kind == "ready" then
@@ -590,6 +701,9 @@ function ActorRemoteSpy.Start(onCall, onReady)
                 end
                 if payload.NamecallHook == true then
                     runtime.NamecallHookedTargets += 1
+                end
+                if (tonumber(payload.OthHooks) or 0) > 0 then
+                    runtime.OthHookedTargets += 1
                 end
                 if onReady then
                     onReady(captureId, payload)
@@ -650,7 +764,13 @@ function ActorRemoteSpy.Start(onCall, onReady)
 
         record.LastAttempt = os.clock()
         runtime.Attempts += 1
-        local source = createSource(bridge.Name, record.Id, oh.Config.CaptureExecutorCalls)
+        local source = createSource(
+            runtime.BridgeName,
+            record.Id,
+            oh.Config.CaptureExecutorCalls,
+            runtime.ChannelId,
+            runtime.UseOth
+        )
         local ran, runReason = pcall(execute, state, source)
         if not ran then
             addFailure(runtime, record.Label .. ": " .. tostring(runReason))
@@ -746,7 +866,13 @@ function ActorRemoteSpy.Start(onCall, onReady)
                     if not record.Ready and os.clock() - record.LastAttempt >= 15 then
                         record.LastAttempt = os.clock()
                         runtime.Attempts += 1
-                        local source = createSource(bridge.Name, record.Id, oh.Config.CaptureExecutorCalls)
+                        local source = createSource(
+                            runtime.BridgeName,
+                            record.Id,
+                            oh.Config.CaptureExecutorCalls,
+                            runtime.ChannelId,
+                            runtime.UseOth
+                        )
                         local ran, runReason = pcall(runOnActor, actor, source)
                         if not ran then
                             local actorName = tostring(actor)

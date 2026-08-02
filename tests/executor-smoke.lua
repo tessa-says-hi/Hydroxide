@@ -12,25 +12,31 @@ if type(identifyexecutor) == "function" then
 end
 
 local checkCaller = checkcaller
+local createCommChannel = create_comm_channel or createcommchannel
 local getConnections = getconnections or get_signal_cons
 local getActorStates = getactorstates
 local getActors = getactors or get_actors or (syn and syn.getactors)
 local getGameState = getgamestate
+local getCommChannel = get_comm_channel or getcommchannel
 local getLuaState = getluastate
 local hookFunction = hookfunction or replaceclosure or detour_function
 local hookMetaMethod = hookmetamethod
+local restoreFunction = restorefunction
 local getNamecallMethod = getnamecallmethod or get_namecall_method
 local actorStateCreated = on_actor_state_created
 local runOnActor = run_on_actor or runonactor or (syn and syn.run_on_actor)
 local callerChecked, callerResult = pcall(checkCaller)
 report.tests.checkcaller = callerChecked and callerResult == true
+report.tests.create_comm_channel = type(createCommChannel) == "function"
 report.tests.getactorstates = type(getActorStates) == "function"
 report.tests.getactors = type(getActors) == "function"
 report.tests.getgamestate = type(getGameState) == "function"
+report.tests.get_comm_channel = type(getCommChannel) == "function"
 report.tests.getluastate = type(getLuaState) == "function"
 report.tests.getnamecallmethod = type(getNamecallMethod) == "function"
 report.tests.hookmetamethod = type(hookMetaMethod) == "function"
 report.tests.on_actor_state_created = actorStateCreated ~= nil
+report.tests.oth = type(oth) == "table" and type(oth.hook) == "function" and type(oth.unhook) == "function"
 report.tests.run_on_actor = type(runOnActor) == "function"
 
 local event = Instance.new("BindableEvent")
@@ -53,7 +59,11 @@ if hooked and type(original) == "function" then
     cachedFire(event, "cached")
     report.tests.cached_method_hook = hookSeen
     report.tests.hook_checkcaller = hookCaller == true
-    report.tests.hook_restored = pcall(hookFunction, cachedFire, original)
+    if type(restoreFunction) == "function" then
+        report.tests.hook_restored = pcall(restoreFunction, cachedFire)
+    else
+        report.tests.hook_restored = pcall(hookFunction, cachedFire, original)
+    end
 else
     report.tests.cached_method_hook = false
     report.tests.hook_error = tostring(hookReason)
@@ -124,21 +134,17 @@ end
 connection:Disconnect()
 event:Destroy()
 
-if type(getActorStates) == "function" then
+if
+    type(getActorStates) == "function"
+    and type(createCommChannel) == "function"
+    and type(getCommChannel) == "function"
+then
     local listed, states = pcall(getActorStates)
     if listed and type(states) == "table" and next(states) then
-        local bridge = Instance.new("Folder")
-        bridge.Name = "HydroxideStateSmoke_"
-            .. game:GetService("HttpService"):GenerateGUID(false):gsub("-", "")
-        local handshakeEvent = Instance.new("BindableEvent")
-        handshakeEvent.Name = "Data"
-        handshakeEvent.Parent = bridge
-        local parented, parentReason = pcall(function()
-            bridge.Parent = game:GetService("CoreGui")
-        end)
-        if parented then
+        local created, channelId, receiver = pcall(createCommChannel)
+        if created and type(channelId) == "number" and type(receiver) == "table" then
             local deliveries = {}
-            local handshakeConnection = handshakeEvent.Event:Connect(function(stateId)
+            local handshakeConnection = receiver.Event:Connect(function(stateId)
                 deliveries[stateId] = true
             end)
             local ids = {}
@@ -154,18 +160,17 @@ if type(getActorStates) == "function" then
                         unique = false
                     end
                     ids[stateId] = true
-                    local source = ([=[
-local bridge = game:GetService("CoreGui"):FindFirstChild(%s, true)
-if bridge then
-    bridge.Data:Fire(%s)
-end
-]=]):format(string.format("%q", bridge.Name), tostring(stateId))
+                    local source = [=[
+local stateId, channelId = ...
+local channel = (get_comm_channel or getcommchannel)(channelId)
+channel:Fire(stateId)
+]=]
                     local execute
                     pcall(function()
                         execute = state.Execute
                     end)
                     if type(execute) == "function" then
-                        local executed, executeReason = pcall(execute, state, source)
+                        local executed, executeReason = pcall(execute, state, source, stateId, channelId)
                         if executed then
                             ran += 1
                         else
@@ -185,11 +190,11 @@ end
             report.tests.actor_state_ids_unique = unique
             report.tests.actor_state_count = ran
             handshakeConnection:Disconnect()
+            pcall(receiver.Internal.Destroy, receiver.Internal)
         else
             report.tests.actor_state_bridge = false
-            report.tests.actor_state_error = tostring(parentReason)
+            report.tests.actor_state_error = tostring(channelId)
         end
-        bridge:Destroy()
     else
         report.tests.actor_state_bridge = "no_state"
     end

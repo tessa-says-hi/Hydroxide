@@ -34,18 +34,30 @@ end, function(err)
     end)
 end)
 
-local constants = {
-    opened = UDim2.new(0.5, -325, 0.5, -175),
-    closed = UDim2.new(0.5, -325, 0, -400),
-    reveal = UDim2.new(0.5, -15, 0, 20),
-    conceal = UDim2.new(0.5, -15, 0, -75),
-}
-
 local Open = Interface.Open
 local Base = Interface.Base
 local Drag = Base.Drag
 local Status = Base.Status
 local Collapse = Drag.Collapse
+
+local camera = workspace.CurrentCamera
+local viewport = camera and camera.ViewportSize or Vector2.new(1920, 1080)
+local desiredScale = 1.12
+local fitScale = math.min((viewport.X - 40) / Base.Size.X.Offset, (viewport.Y - 40) / Base.Size.Y.Offset)
+local scale = math.min(desiredScale, math.max(0.8, fitScale))
+local interfaceScale = Instance.new("UIScale")
+interfaceScale.Name = "HydroxideScale"
+interfaceScale.Scale = scale
+interfaceScale.Parent = Base
+
+local constants = {
+    opened = UDim2.new(0.5, -325 * scale, 0.5, -175 * scale),
+    closed = UDim2.new(0.5, -325 * scale, 0, -400 * scale),
+    reveal = UDim2.new(0.5, -15, 0, 20),
+    conceal = UDim2.new(0.5, -15, 0, -75),
+}
+
+Base.Position = constants.opened
 
 function oh.setStatus(text)
     Status.Text = "• Status: " .. text

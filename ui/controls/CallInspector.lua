@@ -62,7 +62,7 @@ local function createFooterButton(parent, name, text)
         BorderSizePixel = 0,
         Font = Enum.Font.SourceSans,
         Name = name,
-        Size = UDim2.fromOffset(92, 24),
+        Size = UDim2.fromOffset(104, 25),
         Text = text,
         TextColor3 = colors.text,
         TextSize = 14,
@@ -305,7 +305,7 @@ function CallInspector.new(parent)
         ClipsDescendants = false,
         Name = "Window",
         Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromOffset(382, 258),
+        Size = UDim2.fromOffset(460, 306),
         ZIndex = 81,
     }, overlay)
     addCorner(window, 4)
@@ -358,7 +358,7 @@ function CallInspector.new(parent)
         BackgroundTransparency = 1,
         Name = "Tabs",
         Position = UDim2.fromOffset(8, 36),
-        Size = UDim2.new(1, -16, 0, 24),
+        Size = UDim2.new(1, -16, 0, 26),
         ZIndex = 83,
     }, window)
     local argumentTab =
@@ -378,10 +378,10 @@ function CallInspector.new(parent)
         BorderSizePixel = 0,
         CanvasSize = UDim2.new(),
         Name = "Arguments",
-        Position = UDim2.fromOffset(8, 65),
+        Position = UDim2.fromOffset(8, 67),
         ScrollBarImageColor3 = colors.border,
         ScrollBarThickness = 4,
-        Size = UDim2.new(1, -16, 0, 151),
+        Size = UDim2.new(1, -16, 0, 196),
         ZIndex = 82,
     }, window)
     addCorner(arguments, 3)
@@ -433,8 +433,8 @@ function CallInspector.new(parent)
     local footer = create("Frame", {
         BackgroundTransparency = 1,
         Name = "Footer",
-        Position = UDim2.fromOffset(8, 224),
-        Size = UDim2.new(1, -16, 0, 26),
+        Position = UDim2.fromOffset(8, 270),
+        Size = UDim2.new(1, -16, 0, 28),
         ZIndex = 83,
     }, window)
     create("UIListLayout", {

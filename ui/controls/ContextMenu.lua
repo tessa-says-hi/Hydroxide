@@ -14,6 +14,10 @@ local constants = {
 }
 
 local function getGuiPoint(instance, point)
+    if typeof(point) == "Vector3" then
+        point = Vector2.new(point.X, point.Y)
+    end
+
     local cam = workspace.CurrentCamera
     local viewport = cam and cam.ViewportSize or Vector2.new(1920, 1080)
     local screenGui = instance:FindFirstAncestorWhichIsA("ScreenGui")

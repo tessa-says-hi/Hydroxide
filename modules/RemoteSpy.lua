@@ -14,8 +14,8 @@ local requiredMethods = {
 }
 
 local remotesViewing = {
-    BindableEvent = false,
-    BindableFunction = false,
+    BindableEvent = true,
+    BindableFunction = true,
     RemoteEvent = true,
     RemoteFunction = true,
     UnreliableRemoteEvent = true,

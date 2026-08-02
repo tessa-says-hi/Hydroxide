@@ -27,6 +27,7 @@ Running the loader again calls `oh.Exit()` first, disconnects listeners, restore
 ## RemoteSpy updates
 
 - Captures outgoing `RemoteEvent:FireServer`, `UnreliableRemoteEvent:FireServer`, and `RemoteFunction:InvokeServer` calls, including cached method references.
+- Uses both `__namecall` and direct method hooks so normal `:` calls and cached method calls are captured across executors.
 - Optionally captures bindable calls.
 - Captures incoming `OnClientEvent` traffic for reliable and unreliable events.
 - Captures `RemoteFunction.OnClientInvoke` arguments and returns when the executor supports `getcallbackvalue`.
@@ -71,6 +72,7 @@ The original Roblox UI models remain supported. Local model overrides can remove
 
 RemoteSpy requires `checkcaller` and `hookfunction`. Other capabilities degrade independently:
 
+- `hookmetamethod` and `getnamecallmethod` enable normal `:` call capture on executors whose direct method hooks only cover cached references.
 - `getcallbackvalue` enables incoming `OnClientInvoke` capture.
 - `getconnections` enables incoming event receiver inspection, local replay, and reversible incoming blocking.
 - `getactors` plus `run_on_actor` enables optional parallel-Luau capture. Actor states handshake through a temporary in-game bridge and are revisited to catch recreated VMs.

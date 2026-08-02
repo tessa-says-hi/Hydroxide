@@ -27,12 +27,14 @@ local callbackConnections = setmetatable({}, { __mode = "k" })
 local callbackHooks = setmetatable({}, { __mode = "k" })
 local disabledIncomingConnections = setmetatable({}, { __mode = "k" })
 local internalReceiverFunctions = setmetatable({}, { __mode = "k" })
+local namecallThreads = setmetatable({}, { __mode = "k" })
 local ownConnections = {}
 local ownHooks = {}
 local remoteDataEvent = Instance.new("BindableEvent")
 local eventSet = false
 local incomingBlockMonitorRunning = false
 local actorRuntime
+local namecallHookInstalled = false
 local stopped = false
 local nextCallId = 0
 
@@ -66,13 +68,16 @@ local function untrackConnection(connection)
     end
 end
 
-local function trackHook(target, original)
+local function trackHook(target, original, method, object)
     local record
     if oh and oh.TrackHook then
-        record = oh.TrackHook(target, original)
+        record = oh.TrackHook(target, original, method, object)
     else
         record = {
             Active = true,
+            Kind = method and "metamethod" or "function",
+            Method = method,
+            Object = object,
             Original = original,
             Target = target,
         }
@@ -554,6 +559,41 @@ local function addMethodSpec(groups, className, method, yields)
     group.Yields = group.Yields or yields
 end
 
+local namecallSpecs = {
+    Fire = {
+        BindableEvent = { Method = "Fire" },
+    },
+    FireServer = {
+        RemoteEvent = { Method = "FireServer" },
+        UnreliableRemoteEvent = { Method = "FireServer" },
+    },
+    Invoke = {
+        BindableFunction = { Method = "Invoke" },
+    },
+    InvokeServer = {
+        RemoteFunction = { Method = "InvokeServer" },
+    },
+}
+
+local function runNamecall(original, specs, instance, ...)
+    local thread = coroutine.running()
+    if thread then
+        namecallThreads[thread] = (namecallThreads[thread] or 0) + 1
+    end
+
+    local results = pack(pcall(handleOutgoing, original, specs, instance, ...))
+    if thread then
+        local depth = namecallThreads[thread] - 1
+        namecallThreads[thread] = depth > 0 and depth or nil
+    end
+
+    if results[1] then
+        return unpackValues(results, 2, results.n)
+    end
+
+    error(results[2], 0)
+end
+
 local function installMethodHooks()
     local groups = {}
     addMethodSpec(groups, "RemoteEvent", "FireServer", false)
@@ -566,6 +606,11 @@ local function installMethodHooks()
         local currentGroup = group
         local original
         local replacement = function(instance, ...)
+            local thread = coroutine.running()
+            if thread and namecallThreads[thread] then
+                return original(instance, ...)
+            end
+
             return handleOutgoing(original, currentGroup.Specs, instance, ...)
         end
 
@@ -584,13 +629,34 @@ local function installMethodHooks()
     end
 end
 
-local function captureIncomingEvent(instance, method, args)
-    if stopped or RemoteSpy.Paused then
+local function installNamecallHook()
+    if type(hookMetaMethod) ~= "function" or type(getNamecallMethod) ~= "function" then
         return
     end
 
-    local executorCall = isExecutorCaller()
-    if executorCall and not oh.Config.CaptureExecutorCalls then
+    local original
+    local replacement = function(instance, ...)
+        local specs = namecallSpecs[getNamecallMethod()]
+        if not specs then
+            return original(instance, ...)
+        end
+
+        return runNamecall(original, specs, instance, ...)
+    end
+
+    local ok, result = pcall(hookMetaMethod, game, "__namecall", replacement)
+    if ok and type(result) == "function" then
+        original = result
+        trackHook(nil, original, "__namecall", game)
+        namecallHookInstalled = true
+        RemoteSpy.Available = true
+    elseif oh and oh.Failures then
+        oh.Failures["RemoteSpy.__namecall"] = tostring(result)
+    end
+end
+
+local function captureIncomingEvent(instance, method, args)
+    if stopped or RemoteSpy.Paused then
         return
     end
 
@@ -607,7 +673,7 @@ local function captureIncomingEvent(instance, method, args)
     local call = newCall("incoming", method, args)
     call.blocked = remote:IsBlocked("incoming")
     call.conditionMatched = remote:AreArgsBlocked(args)
-    call.executor = executorCall
+    call.executor = false
     call.success = not call.blocked
     storeCall(instance, remote, call)
 end
@@ -676,17 +742,12 @@ local function trackIncomingFunction(instance)
             return original(...)
         end
 
-        local executorCall = isExecutorCaller()
-        if executorCall and not oh.Config.CaptureExecutorCalls then
-            return original(...)
-        end
-
         local args = pack(...)
         local remote = getRemote(instance)
         local blocked = remote:IsBlocked("incoming") or remote:AreArgsBlocked(args)
         local call = newCall("incoming", "OnClientInvoke", args, original, scriptFromFunction(original))
         call.blocked = blocked
-        call.executor = executorCall
+        call.executor = false
 
         if blocked then
             call.success = false
@@ -949,6 +1010,7 @@ function RemoteSpy.GetDiagnostics()
         CaptureIncoming = oh.Config.CaptureIncoming,
         Hooks = activeHooks,
         IncomingConnectionControl = type(getConnections) == "function",
+        NamecallHook = namecallHookInstalled,
         RetainedBytes = getRetainedBytes(),
         RetainedByteLimit = oh.Config.MaxRemoteLogBytes,
     }
@@ -1042,11 +1104,16 @@ function RemoteSpy.Stop()
         if oh and oh.RestoreHook then
             oh.RestoreHook(record)
         elseif record.Active then
-            pcall(hookFunction, record.Target, record.Original)
+            if record.Kind == "metamethod" and hookMetaMethod then
+                pcall(hookMetaMethod, record.Object, record.Method, record.Original)
+            else
+                pcall(hookFunction, record.Target, record.Original)
+            end
             record.Active = false
         end
     end
 
+    namecallHookInstalled = false
     remoteDataEvent:Destroy()
     table.clear(ownConnections)
     table.clear(ownHooks)
@@ -1055,6 +1122,7 @@ function RemoteSpy.Stop()
     table.clear(callbackHooks)
     table.clear(disabledIncomingConnections)
     table.clear(internalReceiverFunctions)
+    table.clear(namecallThreads)
     table.clear(currentRemotes)
     RemoteSpy.Available = false
 end
@@ -1068,6 +1136,7 @@ RemoteSpy.RequiredMethods = requiredMethods
 
 if hasMethods(requiredMethods) then
     installMethodHooks()
+    installNamecallHook()
     startIncomingCapture()
     actorRuntime = ActorRemoteSpy.Start(captureActorCall, function()
         task.defer(function()

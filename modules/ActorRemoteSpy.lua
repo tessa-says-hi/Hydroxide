@@ -28,11 +28,14 @@ local pack = table.pack or function(...)
 end
 local unpackValues = table.unpack or unpack
 local hookFunction = hookfunction or replaceclosure or detour_function
+local hookMetaMethod = hookmetamethod
+local getNamecallMethod = getnamecallmethod or get_namecall_method
 local getConnections = getconnections or get_signal_cons
 local newCClosure = newcclosure
 local checkCaller = checkcaller
 local states = setmetatable({}, { __mode = "k" })
 local disabledConnections = setmetatable({}, { __mode = "k" })
+local namecallThreads = setmetatable({}, { __mode = "k" })
 local hooks = {}
 local runtime = {
     Active = true,
@@ -228,38 +231,106 @@ local function addMethodSpec(groups, className, method, yields)
     group.Yields = group.Yields or yields
 end
 
-local function installHooks()
-    if type(hookFunction) ~= "function" then
+local namecallSpecs = {
+    Fire = {
+        BindableEvent = { Method = "Fire" },
+    },
+    FireServer = {
+        RemoteEvent = { Method = "FireServer" },
+        UnreliableRemoteEvent = { Method = "FireServer" },
+    },
+    Invoke = {
+        BindableFunction = { Method = "Invoke" },
+    },
+    InvokeServer = {
+        RemoteFunction = { Method = "InvokeServer" },
+    },
+}
+
+local function runNamecall(original, specs, instance, ...)
+    local thread = coroutine.running()
+    if thread then
+        namecallThreads[thread] = (namecallThreads[thread] or 0) + 1
+    end
+
+    local results = pack(pcall(handleCall, original, specs, instance, ...))
+    if thread then
+        local depth = namecallThreads[thread] - 1
+        namecallThreads[thread] = depth > 0 and depth or nil
+    end
+
+    if results[1] then
+        return unpackValues(results, 2, results.n)
+    end
+    error(results[2], 0)
+end
+
+local function installNamecallHook()
+    if type(hookMetaMethod) ~= "function" or type(getNamecallMethod) ~= "function" then
         return false
     end
 
-    local groups = {}
-    addMethodSpec(groups, "RemoteEvent", "FireServer", false)
-    addMethodSpec(groups, "UnreliableRemoteEvent", "FireServer", false)
-    addMethodSpec(groups, "RemoteFunction", "InvokeServer", true)
-    addMethodSpec(groups, "BindableEvent", "Fire", false)
-    addMethodSpec(groups, "BindableFunction", "Invoke", true)
-
-    for _, group in pairs(groups) do
-        local currentGroup = group
-        local original
-        local replacement = function(instance, ...)
-            return handleCall(original, currentGroup.Specs, instance, ...)
-        end
-        if not currentGroup.Yields and type(newCClosure) == "function" then
-            replacement = newCClosure(replacement)
+    local original
+    local replacement = function(instance, ...)
+        local specs = namecallSpecs[getNamecallMethod()]
+        if not specs then
+            return original(instance, ...)
         end
 
-        local hooked, result = pcall(hookFunction, currentGroup.Target, replacement)
-        if hooked and type(result) == "function" then
-            original = result
-            table.insert(hooks, {
-                Original = original,
-                Target = currentGroup.Target,
-            })
+        return runNamecall(original, specs, instance, ...)
+    end
+    local hooked, result = pcall(hookMetaMethod, game, "__namecall", replacement)
+    if not hooked or type(result) ~= "function" then
+        return false
+    end
+
+    original = result
+    table.insert(hooks, {
+        Kind = "metamethod",
+        Method = "__namecall",
+        Object = game,
+        Original = original,
+    })
+    return true
+end
+
+local function installHooks()
+    if type(hookFunction) == "function" then
+        local groups = {}
+        addMethodSpec(groups, "RemoteEvent", "FireServer", false)
+        addMethodSpec(groups, "UnreliableRemoteEvent", "FireServer", false)
+        addMethodSpec(groups, "RemoteFunction", "InvokeServer", true)
+        addMethodSpec(groups, "BindableEvent", "Fire", false)
+        addMethodSpec(groups, "BindableFunction", "Invoke", true)
+
+        for _, group in pairs(groups) do
+            local currentGroup = group
+            local original
+            local replacement = function(instance, ...)
+                local thread = coroutine.running()
+                if thread and namecallThreads[thread] then
+                    return original(instance, ...)
+                end
+
+                return handleCall(original, currentGroup.Specs, instance, ...)
+            end
+            if not currentGroup.Yields and type(newCClosure) == "function" then
+                replacement = newCClosure(replacement)
+            end
+
+            local hooked, result = pcall(hookFunction, currentGroup.Target, replacement)
+            if hooked and type(result) == "function" then
+                original = result
+                table.insert(hooks, {
+                    Kind = "function",
+                    Original = original,
+                    Target = currentGroup.Target,
+                })
+            end
         end
     end
 
+    installNamecallHook()
     return #hooks > 0
 end
 
@@ -274,8 +345,13 @@ local function restore()
     end
     for index = #hooks, 1, -1 do
         local hook = hooks[index]
-        pcall(hookFunction, hook.Target, hook.Original)
+        if hook.Kind == "metamethod" then
+            pcall(hookMetaMethod, hook.Object, hook.Method, hook.Original)
+        else
+            pcall(hookFunction, hook.Target, hook.Original)
+        end
     end
+    table.clear(namecallThreads)
     environment[runtimeKey] = nil
 end
 

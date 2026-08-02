@@ -15,10 +15,14 @@ local checkCaller = checkcaller
 local getConnections = getconnections or get_signal_cons
 local getActors = getactors or get_actors or (syn and syn.getactors)
 local hookFunction = hookfunction or replaceclosure or detour_function
+local hookMetaMethod = hookmetamethod
+local getNamecallMethod = getnamecallmethod or get_namecall_method
 local runOnActor = run_on_actor or runonactor or (syn and syn.run_on_actor)
 local callerChecked, callerResult = pcall(checkCaller)
 report.tests.checkcaller = callerChecked and callerResult == true
 report.tests.getactors = type(getActors) == "function"
+report.tests.getnamecallmethod = type(getNamecallMethod) == "function"
+report.tests.hookmetamethod = type(hookMetaMethod) == "function"
 report.tests.run_on_actor = type(runOnActor) == "function"
 
 local event = Instance.new("BindableEvent")
@@ -45,6 +49,27 @@ if hooked and type(original) == "function" then
 else
     report.tests.cached_method_hook = false
     report.tests.hook_error = tostring(hookReason)
+end
+
+if type(hookMetaMethod) == "function" and type(getNamecallMethod) == "function" then
+    local namecallSeen = false
+    local originalNamecall
+    local namecallHooked, namecallReason = pcall(function()
+        originalNamecall = hookMetaMethod(game, "__namecall", function(instance, ...)
+            if instance == event and getNamecallMethod() == "Fire" then
+                namecallSeen = true
+            end
+            return originalNamecall(instance, ...)
+        end)
+    end)
+    if namecallHooked and type(originalNamecall) == "function" then
+        event:Fire("namecall")
+        report.tests.namecall_hook = namecallSeen
+        report.tests.namecall_hook_restored = pcall(hookMetaMethod, game, "__namecall", originalNamecall)
+    else
+        report.tests.namecall_hook = false
+        report.tests.namecall_error = tostring(namecallReason)
+    end
 end
 
 local deliveries = 0

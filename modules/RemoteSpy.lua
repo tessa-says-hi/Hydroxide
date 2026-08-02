@@ -120,6 +120,131 @@ local function scriptFromFunction(func)
     return nil
 end
 
+local function isInternalReceiver(func)
+    if type(func) ~= "function" or not getInfo then
+        return false
+    end
+
+    local ok, info = pcall(getInfo, func)
+    local source = ok and info and (info.source or info.short_src)
+    return type(source) == "string" and source:find("modules/RemoteSpy.lua", 1, true) ~= nil
+end
+
+local function getIncomingReceivers(instance)
+    local receivers = {}
+    if typeof(instance) ~= "Instance" then
+        return receivers, "Invalid remote instance."
+    end
+
+    local className = instance.ClassName
+    if className == "RemoteEvent" or className == "UnreliableRemoteEvent" then
+        if not getConnections then
+            return receivers, "Your executor does not expose getconnections."
+        end
+
+        local ok, connections = pcall(getConnections, instance.OnClientEvent)
+        if not ok or type(connections) ~= "table" then
+            return receivers, "The receiver connections could not be inspected."
+        end
+
+        for _, connection in next, connections do
+            local func
+            pcall(function()
+                func = connection.Function
+            end)
+
+            if not isInternalReceiver(func) then
+                local enabled = true
+                pcall(function()
+                    enabled = connection.Enabled ~= false
+                end)
+                table.insert(receivers, {
+                    Connection = connection,
+                    Enabled = enabled,
+                    Function = func,
+                    Script = scriptFromFunction(func),
+                })
+            end
+        end
+    elseif className == "RemoteFunction" then
+        local current = callbackHooks[instance]
+        local callback = current and current.Record.Original
+
+        if not callback and getCallbackValue then
+            local ok, result = pcall(getCallbackValue, instance, "OnClientInvoke")
+            if ok then
+                callback = result
+            end
+        end
+
+        if type(callback) ~= "function" then
+            return receivers, "No client OnClientInvoke callback is available."
+        end
+
+        table.insert(receivers, {
+            Enabled = true,
+            Function = callback,
+            Script = scriptFromFunction(callback),
+        })
+    else
+        return receivers, "This remote does not receive server calls."
+    end
+
+    if #receivers == 0 then
+        return receivers, "No client receiver callbacks were found."
+    end
+
+    return receivers
+end
+
+local function replayIncoming(instance, args)
+    if type(args) ~= "table" then
+        return false, "The retained arguments are unavailable."
+    end
+
+    local receivers, reason = getIncomingReceivers(instance)
+    if #receivers == 0 then
+        return false, reason
+    end
+
+    local count = args.n or #args
+    if instance.ClassName == "RemoteFunction" then
+        local ok, result = pcall(receivers[1].Function, unpackValues(args, 1, count))
+        return ok, ok and 1 or tostring(result)
+    end
+
+    local fired = 0
+    local lastError
+    for _, receiver in ipairs(receivers) do
+        if receiver.Enabled then
+            local fire
+            if receiver.Connection then
+                pcall(function()
+                    fire = receiver.Connection.Fire
+                end)
+            end
+
+            if type(fire) == "function" then
+                local ok, result = pcall(fire, receiver.Connection, unpackValues(args, 1, count))
+                if ok then
+                    fired += 1
+                else
+                    lastError = tostring(result)
+                end
+            elseif type(receiver.Function) == "function" then
+                task.spawn(receiver.Function, unpackValues(args, 1, count))
+                fired += 1
+            end
+        end
+    end
+
+    if fired == 0 then
+        return false, lastError or "No enabled client receiver callbacks could be replayed."
+    end
+
+    return true, fired
+end
+
 local function getRemote(instance)
     local remote = currentRemotes[instance]
     if not remote then
@@ -587,7 +712,9 @@ end
 
 RemoteSpy.ConnectEvent = connectEvent
 RemoteSpy.CurrentRemotes = currentRemotes
+RemoteSpy.GetIncomingReceivers = getIncomingReceivers
 RemoteSpy.RemotesViewing = remotesViewing
+RemoteSpy.ReplayIncoming = replayIncoming
 RemoteSpy.RequiredMethods = requiredMethods
 
 if hasMethods(requiredMethods) then

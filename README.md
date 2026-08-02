@@ -34,6 +34,7 @@ Running the loader again calls `oh.Exit()` first, disconnects listeners, restore
 - Resolves copied event payloads back to retained calls by stable call ID for executor compatibility.
 - Records direction, method, calling script/function when available, errors, blocked state, and duration.
 - Keeps a bounded per-remote history, with pause/resume, search, export, replay, block, ignore, and argument conditions.
+- Treats incoming calls as client receiver activity: local replay, receiver-script paths, and receiver-function spying replace misleading server-caller actions.
 - Supports mouse, touch dragging, and long-press context menus.
 
 Generated calls use bounded, cycle-safe serialization for tables, buffers, instances, enums, `DateTime`, `NumberRange`, sequences, vectors, CFrames, parameter objects, and other common Roblox datatypes.

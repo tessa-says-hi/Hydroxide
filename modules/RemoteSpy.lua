@@ -1,4 +1,7 @@
 local RemoteSpy = {}
+local ActorRemoteSpy = import("modules/ActorRemoteSpy")
+local PayloadSize = import("methods/payloadSize")
+local RemotePolicy = import("methods/remotePolicy")
 local Remote = import("objects/Remote")
 local pack = table.pack or function(...)
     return { n = select("#", ...), ... }
@@ -22,15 +25,25 @@ local currentRemotes = setmetatable({}, { __mode = "k" })
 local incomingConnections = setmetatable({}, { __mode = "k" })
 local callbackConnections = setmetatable({}, { __mode = "k" })
 local callbackHooks = setmetatable({}, { __mode = "k" })
+local disabledIncomingConnections = setmetatable({}, { __mode = "k" })
+local internalReceiverFunctions = setmetatable({}, { __mode = "k" })
 local ownConnections = {}
 local ownHooks = {}
 local remoteDataEvent = Instance.new("BindableEvent")
 local eventSet = false
+local incomingBlockMonitorRunning = false
+local actorRuntime
 local stopped = false
 local nextCallId = 0
 
 RemoteSpy.Available = false
+RemoteSpy.ActorCaptureAvailable = false
 RemoteSpy.Paused = false
+
+local function isExecutorCaller()
+    local ok, result = pcall(checkCaller)
+    return ok and result == true
+end
 
 local function trackConnection(connection)
     table.insert(ownConnections, connection)
@@ -121,7 +134,11 @@ local function scriptFromFunction(func)
 end
 
 local function isInternalReceiver(func)
-    if type(func) ~= "function" or not getInfo then
+    if type(func) ~= "function" then
+        return false
+    elseif internalReceiverFunctions[func] then
+        return true
+    elseif not getInfo then
         return false
     end
 
@@ -195,6 +212,68 @@ local function getIncomingReceivers(instance)
     end
 
     return receivers
+end
+
+local function setConnectionEnabled(connection, enabled)
+    local method
+    local ok = pcall(function()
+        method = enabled and connection.Enable or connection.Disable
+    end)
+    if not ok or type(method) ~= "function" then
+        return false
+    end
+
+    return pcall(method, connection)
+end
+
+local function syncIncomingBlock(instance, enabled)
+    local disabled = disabledIncomingConnections[instance]
+    if not enabled then
+        if not disabled then
+            return true, 0
+        end
+
+        local restored = 0
+        for connection in pairs(disabled) do
+            if setConnectionEnabled(connection, true) then
+                restored += 1
+            end
+        end
+        disabledIncomingConnections[instance] = nil
+        return true, restored
+    end
+
+    local receivers, reason = getIncomingReceivers(instance)
+    if reason and #receivers == 0 then
+        if reason == "No client receiver callbacks were found." then
+            return true, 0
+        end
+        return false, reason
+    end
+
+    if not disabled then
+        disabled = {}
+        disabledIncomingConnections[instance] = disabled
+    end
+
+    local changed = 0
+    for _, receiver in ipairs(receivers) do
+        local connection = receiver.Connection
+        if connection and receiver.Enabled and not disabled[connection] then
+            if setConnectionEnabled(connection, false) then
+                disabled[connection] = true
+                changed += 1
+            end
+        end
+    end
+
+    return true, changed
+end
+
+local function restoreIncomingBlocks()
+    for instance in pairs(disabledIncomingConnections) do
+        syncIncomingBlock(instance, false)
+    end
 end
 
 local function replayIncoming(instance, args)
@@ -278,13 +357,102 @@ local function newCall(direction, method, args, func, source)
     }
 end
 
-local function shouldStore(remote, args)
-    return not RemoteSpy.Paused and not remote.Ignored and not remote:AreArgsIgnored(args)
+local function shouldStore(remote, args, direction)
+    return RemotePolicy.ShouldStore(
+        RemoteSpy.Paused,
+        remote:IsIgnored(direction),
+        remote:AreArgsIgnored(args)
+    )
+end
+
+local function getRetainedBytes()
+    local bytes = 0
+    for _, remote in pairs(currentRemotes) do
+        bytes += remote.RetainedBytes
+    end
+
+    return bytes
+end
+
+local function getOldestRetainedCall()
+    local oldestRemote
+    local oldestCall
+    for _, remote in pairs(currentRemotes) do
+        local call = remote.Logs[1]
+        if call and (not oldestCall or call.id < oldestCall.id) then
+            oldestRemote = remote
+            oldestCall = call
+        end
+    end
+
+    return oldestRemote, oldestCall
 end
 
 local function storeCall(instance, remote, call)
-    remote:IncrementCalls(call)
+    local byteBudget = oh.Config.MaxRemoteLogBytes or 8 * 1024 * 1024
+    call.bytes = PayloadSize.EstimateCall(call, byteBudget)
+    if call.bytes > byteBudget then
+        call.payloadBytes = call.bytes
+        call.payloadDropped = true
+        call.args = { n = 0 }
+        call.returns = nil
+        call.error = nil
+        call.bytes = 0
+    end
+
+    local evicted = remote:IncrementCalls(call)
+    if evicted then
+        emit(instance, { id = evicted.id }, "remove")
+    end
+
+    while getRetainedBytes() > byteBudget do
+        local oldestRemote, oldestCall = getOldestRetainedCall()
+        if not oldestCall then
+            break
+        end
+
+        oldestRemote:DecrementCalls(oldestCall)
+        emit(oldestRemote.Instance, { id = oldestCall.id }, "remove")
+    end
+
     emit(instance, call, "add")
+end
+
+local function captureActorCall(instance, payload, actorId)
+    if stopped or RemoteSpy.Paused or type(payload) ~= "table" then
+        return
+    end
+
+    local className = instance.ClassName
+    if not remotesViewing[className] then
+        return
+    end
+
+    local direction = payload.Direction
+    if direction ~= "incoming" and direction ~= "outgoing" and direction ~= "local" then
+        return
+    elseif payload.Executor and not oh.Config.CaptureExecutorCalls then
+        return
+    end
+
+    local args = type(payload.Args) == "table" and payload.Args or { n = 0 }
+    local remote = getRemote(instance)
+    if not shouldStore(remote, args, direction) then
+        return
+    end
+
+    local call = newCall(direction, tostring(payload.Method or "Unknown"), args)
+    call.actor = actorId
+    call.blocked = payload.Blocked == true
+    call.blockMissed = remote:IsBlocked(direction) and not call.blocked
+    call.conditionMatched = remote:AreArgsBlocked(args)
+    call.duration = payload.Duration
+    call.error = payload.Error
+    call.executor = payload.Executor == true
+    call.payloadDropped = payload.PayloadDropped == true
+    call.returns = type(payload.Returns) == "table" and payload.Returns or nil
+    call.success = payload.Success == true
+    storeCall(instance, remote, call)
 end
 
 local function callOriginal(original, instance, args, call)
@@ -307,7 +475,8 @@ local function callOriginal(original, instance, args, call)
 end
 
 local function handleOutgoing(original, specs, instance, ...)
-    if stopped or not oh.Active or checkCaller() then
+    local executorCall = isExecutorCaller()
+    if not RemotePolicy.ShouldCapture(stopped, oh.Active, executorCall, oh.Config.CaptureExecutorCalls) then
         return original(instance, ...)
     end
 
@@ -319,27 +488,33 @@ local function handleOutgoing(original, specs, instance, ...)
         return instance.ClassName
     end)
     local spec = ok and specs[className]
-    if not spec or not remotesViewing[className] or instance == remoteDataEvent then
+    if
+        not spec
+        or not remotesViewing[className]
+        or instance == remoteDataEvent
+        or (actorRuntime and actorRuntime:Owns(instance))
+    then
         return original(instance, ...)
     end
 
     local args = pack(...)
     local remote = getRemote(instance)
-    local blocked = remote.Blocked or remote:AreArgsBlocked(args)
-    local direction = className:find("^Bindable") and "local" or "outgoing"
+    local direction = RemotePolicy.DirectionForClass(className)
+    local blocked = remote:IsBlocked(direction) or remote:AreArgsBlocked(args)
     local call = newCall(direction, spec.Method, args, safeCallingFunction(), safeCallingScript())
     call.blocked = blocked
+    call.executor = executorCall
 
     if blocked then
         call.success = false
-        if shouldStore(remote, args) then
+        if shouldStore(remote, args, direction) then
             storeCall(instance, remote, call)
         end
         return
     end
 
     local success, results = callOriginal(original, instance, args, call)
-    if shouldStore(remote, args) then
+    if shouldStore(remote, args, direction) then
         storeCall(instance, remote, call)
     end
 
@@ -414,18 +589,26 @@ local function captureIncomingEvent(instance, method, args)
         return
     end
 
+    local executorCall = isExecutorCaller()
+    if executorCall and not oh.Config.CaptureExecutorCalls then
+        return
+    end
+
     local className = instance.ClassName
     if not remotesViewing[className] then
         return
     end
 
     local remote = getRemote(instance)
-    if remote.Ignored or remote:AreArgsIgnored(args) then
+    if remote:IsIgnored("incoming") or remote:AreArgsIgnored(args) then
         return
     end
 
     local call = newCall("incoming", method, args)
-    call.success = true
+    call.blocked = remote:IsBlocked("incoming")
+    call.conditionMatched = remote:AreArgsBlocked(args)
+    call.executor = executorCall
+    call.success = not call.blocked
     storeCall(instance, remote, call)
 end
 
@@ -439,11 +622,18 @@ local function trackIncomingEvent(instance)
         return
     end
 
-    local connection = instance.OnClientEvent:Connect(function(...)
+    local receiver = function(...)
         captureIncomingEvent(instance, "OnClientEvent", pack(...))
-    end)
+    end
+    internalReceiverFunctions[receiver] = true
+    local connection = instance.OnClientEvent:Connect(receiver)
     incomingConnections[instance] = connection
     trackConnection(connection)
+
+    local remote = currentRemotes[instance]
+    if remote and remote:IsBlocked("incoming") then
+        syncIncomingBlock(instance, true)
+    end
 end
 
 local function restoreCallbackHook(instance)
@@ -482,19 +672,25 @@ local function trackIncomingFunction(instance)
 
     local original
     local replacement = function(...)
-        if stopped or checkCaller() or not remotesViewing.RemoteFunction then
+        if stopped or not remotesViewing.RemoteFunction then
+            return original(...)
+        end
+
+        local executorCall = isExecutorCaller()
+        if executorCall and not oh.Config.CaptureExecutorCalls then
             return original(...)
         end
 
         local args = pack(...)
         local remote = getRemote(instance)
-        local blocked = remote.Blocked or remote:AreArgsBlocked(args)
+        local blocked = remote:IsBlocked("incoming") or remote:AreArgsBlocked(args)
         local call = newCall("incoming", "OnClientInvoke", args, original, scriptFromFunction(original))
         call.blocked = blocked
+        call.executor = executorCall
 
         if blocked then
             call.success = false
-            if shouldStore(remote, args) then
+            if shouldStore(remote, args, "incoming") then
                 storeCall(instance, remote, call)
             end
             return
@@ -515,12 +711,13 @@ local function trackIncomingFunction(instance)
             call.error = tostring(results[2])
         end
 
-        if shouldStore(remote, args) then
+        local returnValues = call.returns
+        if shouldStore(remote, args, "incoming") then
             storeCall(instance, remote, call)
         end
 
         if results[1] then
-            return unpackValues(call.returns, 1, call.returns.n)
+            return unpackValues(returnValues, 1, returnValues.n)
         end
 
         error(results[2], 0)
@@ -559,6 +756,8 @@ local function trackRemote(instance)
 end
 
 local function removeRemote(instance)
+    syncIncomingBlock(instance, false)
+
     local incoming = incomingConnections[instance]
     if incoming then
         untrackConnection(incoming)
@@ -572,6 +771,39 @@ local function removeRemote(instance)
     end
 
     restoreCallbackHook(instance)
+end
+
+local function isIncomingEvent(instance)
+    local ok, className = pcall(function()
+        return instance.ClassName
+    end)
+    return ok and (className == "RemoteEvent" or className == "UnreliableRemoteEvent")
+end
+
+local function startIncomingBlockMonitor()
+    if incomingBlockMonitorRunning then
+        return
+    end
+
+    incomingBlockMonitorRunning = true
+    task.spawn(function()
+        while not stopped and oh.Active do
+            local hasBlockedRemote = false
+            for instance, remote in pairs(currentRemotes) do
+                if remote:IsBlocked("incoming") and isIncomingEvent(instance) then
+                    hasBlockedRemote = true
+                    syncIncomingBlock(instance, true)
+                end
+            end
+
+            if not hasBlockedRemote then
+                break
+            end
+            task.wait(0.25)
+        end
+
+        incomingBlockMonitorRunning = false
+    end)
 end
 
 local function startIncomingCapture()
@@ -621,6 +853,107 @@ local function connectEvent(callback)
     return connection
 end
 
+local function resolveRemote(remoteOrInstance)
+    if typeof(remoteOrInstance) == "Instance" then
+        return getRemote(remoteOrInstance)
+    elseif type(remoteOrInstance) == "table" and remoteOrInstance.Instance then
+        return remoteOrInstance
+    end
+
+    return nil
+end
+
+local function syncActorState(remote, direction)
+    if not actorRuntime or not actorRuntime.Active then
+        return
+    end
+
+    if direction then
+        actorRuntime:SetState(
+            remote.Instance,
+            direction,
+            remote:IsBlocked(direction),
+            remote:IsIgnored(direction)
+        )
+        return
+    end
+
+    for _, currentDirection in ipairs(Remote.Directions) do
+        syncActorState(remote, currentDirection)
+    end
+end
+
+function RemoteSpy.SetBlocked(remoteOrInstance, enabled, direction)
+    local remote = resolveRemote(remoteOrInstance)
+    if not remote then
+        return false, false, "Invalid remote."
+    end
+
+    local state = remote:Block(enabled, direction)
+    local synced = true
+    local reason
+    if direction == nil or direction == "incoming" then
+        local instance = remote.Instance
+        if isIncomingEvent(instance) then
+            synced, reason = syncIncomingBlock(instance, remote:IsBlocked("incoming"))
+            if remote:IsBlocked("incoming") then
+                startIncomingBlockMonitor()
+            end
+        end
+    end
+
+    if not synced and oh and oh.Failures then
+        oh.Failures["RemoteSpy.IncomingBlock"] = tostring(reason)
+    end
+
+    syncActorState(remote, direction)
+
+    return state, synced, reason
+end
+
+function RemoteSpy.SetIgnored(remoteOrInstance, enabled, direction)
+    local remote = resolveRemote(remoteOrInstance)
+    if not remote then
+        return false, "Invalid remote."
+    end
+
+    local state = remote:Ignore(enabled, direction)
+    syncActorState(remote, direction)
+    return state
+end
+
+function RemoteSpy.GetRetainedBytes()
+    return getRetainedBytes()
+end
+
+function RemoteSpy.GetDiagnostics()
+    local actorDiagnostics = actorRuntime and actorRuntime:GetDiagnostics()
+        or {
+            Active = false,
+            Available = type(getActors) == "function" and type(runOnActor) == "function",
+            ReadyActors = 0,
+        }
+
+    local activeHooks = 0
+    for _, record in ipairs(ownHooks) do
+        if record.Active then
+            activeHooks += 1
+        end
+    end
+
+    return {
+        Active = not stopped and oh.Active,
+        Actor = actorDiagnostics,
+        CaptureActors = oh.Config.CaptureActors,
+        CaptureExecutorCalls = oh.Config.CaptureExecutorCalls,
+        CaptureIncoming = oh.Config.CaptureIncoming,
+        Hooks = activeHooks,
+        IncomingConnectionControl = type(getConnections) == "function",
+        RetainedBytes = getRetainedBytes(),
+        RetainedByteLimit = oh.Config.MaxRemoteLogBytes,
+    }
+end
+
 function RemoteSpy.SetPaused(enabled)
     if enabled == nil then
         RemoteSpy.Paused = not RemoteSpy.Paused
@@ -654,8 +987,14 @@ function RemoteSpy.Export(remote)
             "args = table.pack(" .. serializeArgs(call.args) .. ")",
             "success = " .. tostring(call.success == true),
             "blocked = " .. tostring(call.blocked == true),
+            "executor = " .. tostring(call.executor == true),
+            "bytes = " .. tostring(call.bytes or 0),
             "timestamp = " .. tostring(call.timestamp),
         }
+
+        if call.actor then
+            table.insert(fields, "actor = " .. tostring(call.actor))
+        end
 
         if call.returns then
             table.insert(fields, "returns = table.pack(" .. serializeArgs(call.returns) .. ")")
@@ -668,6 +1007,10 @@ function RemoteSpy.Export(remote)
         end
         if call.script then
             table.insert(fields, "script = " .. getInstancePath(call.script))
+        end
+        if call.payloadDropped then
+            table.insert(fields, "payloadDropped = true")
+            table.insert(fields, "payloadBytes = " .. tostring(call.payloadBytes or 0))
         end
 
         table.insert(lines, "        { " .. table.concat(fields, ", ") .. " },")
@@ -685,6 +1028,10 @@ function RemoteSpy.Stop()
 
     stopped = true
     RemoteSpy.Paused = true
+    if actorRuntime then
+        actorRuntime:Stop()
+    end
+    restoreIncomingBlocks()
 
     for _, connection in ipairs(ownConnections) do
         pcall(connection.Disconnect, connection)
@@ -706,6 +1053,8 @@ function RemoteSpy.Stop()
     table.clear(incomingConnections)
     table.clear(callbackConnections)
     table.clear(callbackHooks)
+    table.clear(disabledIncomingConnections)
+    table.clear(internalReceiverFunctions)
     table.clear(currentRemotes)
     RemoteSpy.Available = false
 end
@@ -720,6 +1069,16 @@ RemoteSpy.RequiredMethods = requiredMethods
 if hasMethods(requiredMethods) then
     installMethodHooks()
     startIncomingCapture()
+    actorRuntime = ActorRemoteSpy.Start(captureActorCall, function()
+        task.defer(function()
+            for _, remote in pairs(currentRemotes) do
+                syncActorState(remote)
+            end
+        end)
+    end)
+    RemoteSpy.ActorCaptureAvailable = actorRuntime.Available
+    oh.RemoteSpy = RemoteSpy
+    oh.RemoteSpyDiagnostics = RemoteSpy.GetDiagnostics
     if oh and oh.TrackCleanup then
         oh.TrackCleanup(RemoteSpy.Stop)
     end

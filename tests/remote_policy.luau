@@ -1,0 +1,15 @@
+local RemotePolicy = require("../methods/remotePolicy")
+
+assert(RemotePolicy.DirectionForClass("BindableEvent") == "local")
+assert(RemotePolicy.DirectionForClass("RemoteEvent") == "outgoing")
+assert(RemotePolicy.ShouldCapture(false, true, false, false))
+assert(not RemotePolicy.ShouldCapture(false, true, true, false))
+assert(RemotePolicy.ShouldCapture(false, true, true, true))
+assert(not RemotePolicy.ShouldCapture(true, true, false, true))
+assert(not RemotePolicy.ShouldCapture(false, false, false, true))
+assert(RemotePolicy.ShouldStore(false, false, false))
+assert(not RemotePolicy.ShouldStore(true, false, false))
+assert(not RemotePolicy.ShouldStore(false, true, false))
+assert(not RemotePolicy.ShouldStore(false, false, true))
+
+print("remote_policy: ok")

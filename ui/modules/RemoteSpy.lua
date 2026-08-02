@@ -152,6 +152,8 @@ local scriptContext = ContextMenuButton.new("rbxassetid://4800244808", "Generate
 local callingScriptContext = ContextMenuButton.new("rbxassetid://4800244808", "Get Calling Script")
 local spyClosureContext = ContextMenuButton.new("rbxassetid://4666593447", "Spy Calling Function")
 local repeatCallContext = ContextMenuButton.new("rbxassetid://4907151581", "Repeat Call")
+local ignoreDirectionContext = ContextMenuButton.new("rbxassetid://4842578510", "Ignore Direction")
+local blockDirectionContext = ContextMenuButton.new("rbxassetid://4891641806", "Block Direction")
 local viewAsHexContext = ContextMenuButton.new("rbxassetid://9058292613", "Toggle String Hex View")
 
 local removeConditionContext = ContextMenuButton.new("rbxassetid://4702831188", "Remove Condition")
@@ -190,6 +192,8 @@ local remoteLogsMenu = ContextMenu.new({
     callingScriptContext,
     spyClosureContext,
     repeatCallContext,
+    ignoreDirectionContext,
+    blockDirectionContext,
     viewAsHexContext,
 })
 local remoteConditionMenu = ContextMenu.new({ removeConditionContext })
@@ -233,6 +237,44 @@ local function checkCurrentBlocked()
     ).X + 30
 
     LogsButtons.Block.Size = UDim2.new(0, newWidth, 0, 20)
+end
+
+local function updateLogAppearance(log)
+    local remote = log.Remote
+    if remote.Blocked then
+        log:PlayBlock()
+    elseif remote.Ignored then
+        log:PlayIgnore()
+    else
+        log:PlayNormal()
+    end
+end
+
+local function setRemoteIgnored(log, enabled, direction)
+    local state = Methods.SetIgnored(log.Remote, enabled, direction)
+    if selected.remoteLog == log then
+        checkCurrentIgnored()
+    end
+    updateLogAppearance(log)
+    return state
+end
+
+local function setRemoteBlocked(log, enabled, direction, quiet)
+    local state, synced, reason = Methods.SetBlocked(log.Remote, enabled, direction)
+    if selected.remoteLog == log then
+        checkCurrentBlocked()
+    end
+    updateLogAppearance(log)
+
+    if not quiet and state and not synced then
+        MessageBox.Show(
+            "Incoming block unavailable",
+            tostring(reason or "The executor could not disable client receiver connections."),
+            MessageType.OK
+        )
+    end
+
+    return state
 end
 
 local Condition = {}
@@ -438,6 +480,7 @@ function Log.new(remote)
     currentLogs[remoteInstance] = log
 
     log.Remote = remote
+    log.CallButtons = {}
     log.Button = listButton
     log.BlockAnimation = blockAnimation
     log.IgnoreAnimation = ignoreAnimation
@@ -449,6 +492,7 @@ function Log.new(remote)
     log.Adjust = Log.adjust
     log.IncrementCalls = Log.incrementCalls
     log.DecrementCalls = Log.decrementCalls
+    log.RemoveCall = Log.removeCall
     log.Remove = Log.remove
     updateRemoteStatus()
     return log
@@ -493,8 +537,21 @@ function ArgsLog.new(log, callInfo)
 
     height += createArg(instance, "DIR", callInfo.direction)
     height += createArg(instance, "OP", callInfo.method)
+    if callInfo.actor then
+        height += createArg(instance, "VM", "Actor #" .. tostring(callInfo.actor))
+    end
     if callInfo.blocked then
         height += createArg(instance, "BLOCK", true)
+    elseif callInfo.blockMissed then
+        height += createArg(instance, "BLOCK", "state sync missed")
+    end
+    if callInfo.executor then
+        height += createArg(instance, "EXEC", true)
+    end
+    if callInfo.payloadDropped then
+        local payloadBytes = callInfo.payloadBytes and (tostring(callInfo.payloadBytes) .. " bytes")
+            or "size unavailable"
+        height += createArg(instance, "PAYLOAD", "dropped (" .. payloadBytes .. ")")
     end
     if callInfo.duration then
         height += createArg(instance, "SEC", callInfo.duration)
@@ -527,6 +584,19 @@ function ArgsLog.new(log, callInfo)
         spyClosureContext:SetText(incoming and "Spy Receiver Functions" or "Spy Calling Function")
         repeatCallContext:SetText(incoming and "Replay Incoming Locally" or "Repeat Call")
 
+        local direction = callInfo.direction
+        local directionLabel = direction:sub(1, 1):upper() .. direction:sub(2)
+        local directionBlocked = log.Remote:IsBlocked(direction)
+        local directionIgnored = log.Remote:IsIgnored(direction)
+        blockDirectionContext:SetIcon(directionBlocked and icons.unblock or icons.block)
+        blockDirectionContext:SetText(
+            (directionBlocked and "Unblock " or "Block ") .. directionLabel .. " Calls"
+        )
+        ignoreDirectionContext:SetIcon(directionIgnored and icons.unignore or icons.ignore)
+        ignoreDirectionContext:SetText(
+            (directionIgnored and "Unignore " or "Ignore ") .. directionLabel .. " Calls"
+        )
+
         selected.args = callInfo.args
         selected.callingScript = callInfo.script
         selected.func = callInfo.func
@@ -536,9 +606,13 @@ function ArgsLog.new(log, callInfo)
 
     button.Instance.Size = button.Instance.Size + UDim2.new(0, 0, 0, height)
     callInfo.Button = button
+    log.CallButtons[callInfo.id] = button
     button:SetRemoveCallback(function()
         if callInfo.Button == button then
             callInfo.Button = nil
+        end
+        if log.CallButtons[callInfo.id] == button then
+            log.CallButtons[callInfo.id] = nil
         end
     end)
 
@@ -594,6 +668,11 @@ function Log.clear(log)
 
     if selected.remoteLog == log then
         remoteLogs:Clear()
+        selected.call = nil
+        selected.args = nil
+        selected.callingScript = nil
+        selected.func = nil
+        selected.callPodButton = nil
     end
 
     logInstance.Calls.Text = 0
@@ -629,6 +708,15 @@ function Log.decrementCalls(log, call)
     log:Adjust()
 end
 
+function Log.removeCall(log, callId)
+    local button = log.CallButtons[callId]
+    if button then
+        button:Remove()
+        log.CallButtons[callId] = nil
+        remoteLogs:Recalculate()
+    end
+end
+
 function Log.remove(log)
     local remoteInstance = log.Remote.Instance
 
@@ -636,6 +724,11 @@ function Log.remove(log)
     if selected.remoteLog == log then
         remoteLogs:Clear()
         selected.remoteLog = nil
+        selected.call = nil
+        selected.args = nil
+        selected.callingScript = nil
+        selected.func = nil
+        selected.callPodButton = nil
     end
     if selected.logContext == log then
         selected.logContext = nil
@@ -702,35 +795,11 @@ LogsBack.MouseButton1Click:Connect(function()
 end)
 
 LogsButtons.Ignore.MouseButton1Click:Connect(function()
-    local selectedRemote = selected.remoteLog.Remote
-
-    selectedRemote:Ignore()
-
-    checkCurrentIgnored()
-
-    if selectedRemote.Blocked then
-        selected.remoteLog:PlayBlock()
-    elseif selectedRemote.Ignored then
-        selected.remoteLog:PlayIgnore()
-    else
-        selected.remoteLog:PlayNormal()
-    end
+    setRemoteIgnored(selected.remoteLog)
 end)
 
 LogsButtons.Block.MouseButton1Click:Connect(function()
-    local selectedRemote = selected.remoteLog.Remote
-
-    selectedRemote:Block()
-
-    checkCurrentBlocked()
-
-    if selectedRemote.Blocked then
-        selected.remoteLog:PlayBlock()
-    elseif selectedRemote.Ignored then
-        selected.remoteLog:PlayIgnore()
-    else
-        selected.remoteLog:PlayNormal()
-    end
+    setRemoteBlocked(selected.remoteLog)
 end)
 
 LogsButtons.Clear.MouseButton1Click:Connect(function()
@@ -920,35 +989,11 @@ clearContext:SetCallback(function()
 end)
 
 ignoreContext:SetCallback(function()
-    local selectedRemote = selected.logContext.Remote
-
-    selected.logContext.Remote:Ignore()
-
-    checkCurrentIgnored()
-
-    if selectedRemote.Blocked then
-        selected.logContext:PlayBlock()
-    elseif selectedRemote.Ignored then
-        selected.logContext:PlayIgnore()
-    else
-        selected.logContext:PlayNormal()
-    end
+    setRemoteIgnored(selected.logContext)
 end)
 
 blockContext:SetCallback(function()
-    local selectedRemote = selected.logContext.Remote
-
-    selected.logContext.Remote:Block()
-
-    checkCurrentBlocked()
-
-    if selectedRemote.Blocked then
-        selected.logContext:PlayBlock()
-    elseif selectedRemote.Ignored then
-        selected.logContext:PlayIgnore()
-    else
-        selected.logContext:PlayNormal()
-    end
+    setRemoteBlocked(selected.logContext)
 end)
 
 removeContext:SetCallback(function()
@@ -977,15 +1022,7 @@ end)
 
 ignoreContextSelected:SetCallback(function()
     for _i, log in pairs(selected.logs) do
-        local remote = log.Remote
-
-        remote:Ignore(true)
-
-        if remote.Blocked then
-            log:PlayBlock()
-        elseif remote.Ignored then
-            log:PlayIgnore()
-        end
+        setRemoteIgnored(log, true)
     end
 
     remoteList:DeselectAll()
@@ -993,15 +1030,7 @@ end)
 
 unignoreContextSelected:SetCallback(function()
     for _i, log in pairs(selected.logs) do
-        local remote = log.Remote
-
-        remote:Unignore()
-
-        if remote.Blocked then
-            log:PlayBlock()
-        else
-            log:PlayNormal()
-        end
+        setRemoteIgnored(log, false)
     end
 
     remoteList:DeselectAll()
@@ -1009,15 +1038,7 @@ end)
 
 blockContextSelected:SetCallback(function()
     for _i, log in pairs(selected.logs) do
-        local remote = log.Remote
-
-        remote:Block(true)
-
-        if remote.Blocked then
-            log:PlayBlock()
-        elseif remote.Ignored then
-            log:PlayIgnore()
-        end
+        setRemoteBlocked(log, true, nil, true)
     end
 
     remoteList:DeselectAll()
@@ -1025,15 +1046,7 @@ end)
 
 unblockContextSelected:SetCallback(function()
     for _i, log in pairs(selected.logs) do
-        local remote = log.Remote
-
-        remote:Unblock()
-
-        if remote.Ignored then
-            log:PlayIgnore()
-        else
-            log:PlayNormal()
-        end
+        setRemoteBlocked(log, false, nil, true)
     end
 
     remoteList:DeselectAll()
@@ -1305,6 +1318,20 @@ repeatCallContext:SetCallback(function()
     return nil
 end)
 
+ignoreDirectionContext:SetCallback(function()
+    local call = selected.call
+    if call and selected.remoteLog then
+        setRemoteIgnored(selected.remoteLog, nil, call.direction)
+    end
+end)
+
+blockDirectionContext:SetCallback(function()
+    local call = selected.call
+    if call and selected.remoteLog then
+        setRemoteBlocked(selected.remoteLog, nil, call.direction)
+    end
+end)
+
 viewAsHexContext:SetCallback(function()
     selected.callPodButton.hexViewEnabled = not selected.callPodButton.hexViewEnabled
     if not selected.callPodButton.oldStrings then
@@ -1378,7 +1405,22 @@ local function addRemoteCall(remoteInstance, callInfo)
     end
 end
 
-Methods.ConnectEvent(function(remoteInstance, callInfo)
+Methods.ConnectEvent(function(remoteInstance, callInfo, eventType)
+    if eventType == "remove" then
+        local log = currentLogs[remoteInstance]
+        if log and type(callInfo) == "table" then
+            log:RemoveCall(callInfo.id)
+            if selected.call and selected.call.id == callInfo.id then
+                selected.call = nil
+                selected.args = nil
+                selected.callingScript = nil
+                selected.func = nil
+                selected.callPodButton = nil
+            end
+        end
+        return
+    end
+
     addRemoteCall(remoteInstance, callInfo)
 end)
 

@@ -32,6 +32,7 @@ local globalMethods = {
     cloneRef = cloneref,
     compareInstances = compareinstances,
     getCallbackValue = getcallbackvalue,
+    getActors = first(getactors, get_actors, syn and syn.getactors),
     getCallingScript = first(getcallingscript, get_calling_script),
     getConnections = first(getconnections, get_signal_cons),
     getConstant = first(debug and debug.getconstant, getconstant, getconst),
@@ -87,6 +88,7 @@ local globalMethods = {
     readFile = readfile,
     request = first(request, http and http.request, http_request, syn and syn.request),
     restoreFunction = restorefunction,
+    runOnActor = first(run_on_actor, runonactor, syn and syn.run_on_actor),
     setClipboard = first(setclipboard, writeclipboard),
     setConstant = first(debug and debug.setconstant, setconstant, setconst),
     setContext = first(
@@ -177,7 +179,10 @@ for name, method in pairs(globalMethods) do
 end
 
 local config = {
+    CaptureActors = true,
+    CaptureExecutorCalls = false,
     CaptureIncoming = true,
+    MaxRemoteLogBytes = 8 * 1024 * 1024,
     MaxRemoteLogs = 500,
     MaxSerializedDepth = 7,
     MaxSerializedEntries = 150,

@@ -10,6 +10,10 @@ declare function isexecutorclosure(target: (...any) -> ...any): boolean
 declare function getcallingscript(): Instance?
 declare function getcallbackvalue(instance: Instance, property: string): any
 declare function getconnections(signal: RBXScriptSignal): { any }
+declare function getactors(): { Actor }
+declare function get_actors(): { Actor }
+declare function run_on_actor(actor: Actor, source: string): any
+declare function runonactor(actor: Actor, source: string): any
 declare function getgc(includeTables: boolean?): { any }
 declare function getloadedmodules(excludeCore: boolean?): { ModuleScript }
 declare function getrunningscripts(): { LuaSourceContainer }

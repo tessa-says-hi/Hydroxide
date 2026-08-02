@@ -30,10 +30,14 @@ Running the loader again calls `oh.Exit()` first, disconnects listeners, restore
 - Optionally captures bindable calls.
 - Captures incoming `OnClientEvent` traffic for reliable and unreliable events.
 - Captures `RemoteFunction.OnClientInvoke` arguments and returns when the executor supports `getcallbackvalue`.
+- Captures outgoing calls made from parallel Luau Actor VMs when the executor supports `getactors` and `run_on_actor`.
 - Preserves trailing `nil` arguments and multiple return values with packed tuples.
 - Resolves copied event payloads back to retained calls by stable call ID for executor compatibility.
 - Records direction, method, calling script/function when available, errors, blocked state, and duration.
-- Keeps a bounded per-remote history, with pause/resume, search, export, replay, block, ignore, and argument conditions.
+- Keeps bounded per-remote and global byte-limited history, with pause/resume, search, export, replay, block, ignore, and argument conditions.
+- Tracks block and ignore state independently for incoming, outgoing, and local calls; the existing remote-level controls still apply to all directions.
+- Disables enabled `OnClientEvent` receiver connections while incoming calls are blocked, monitors for new receivers, and restores only the connections Hydroxide disabled.
+- Can opt in to executor-originated call capture and labels those calls in logs and exports.
 - Treats incoming calls as client receiver activity: local replay, receiver-script paths, and receiver-function spying replace misleading server-caller actions.
 - Supports mouse, touch dragging, and long-press context menus.
 
@@ -45,7 +49,10 @@ Set configuration before loading `init.lua`:
 
 ```lua
 getgenv().HydroxideConfig = {
+    CaptureActors = true,
+    CaptureExecutorCalls = false,
     CaptureIncoming = true,
+    MaxRemoteLogBytes = 8 * 1024 * 1024,
     MaxRemoteLogs = 500,
     MaxSerializedDepth = 7,
     MaxSerializedEntries = 150,
@@ -53,7 +60,9 @@ getgenv().HydroxideConfig = {
 }
 ```
 
-The loader works without filesystem APIs. If `readfile` and `writefile` are available, source modules are cached by the current branch commit. Capability and executor information is available through `oh.Capabilities`, `oh.Executor`, and `oh.Failures`.
+The loader works without filesystem APIs. If `readfile` and `writefile` are available, source modules are cached by the current branch commit. Capability and executor information is available through `oh.Capabilities`, `oh.Executor`, and `oh.Failures`. `oh.RemoteSpyDiagnostics()` reports active hooks, Actor handshakes/failures, incoming connection control, and retained payload bytes.
+
+`MaxRemoteLogBytes` limits raw retained arguments, returns, and errors across all remotes. A single payload larger than the limit is dropped while its compact call metadata remains visible. `CaptureExecutorCalls` is disabled by default to avoid logging Hydroxide replays and other executor tooling unless explicitly requested.
 
 The original Roblox UI models remain supported. Local model overrides can remove that external dependency; see [assets/README.md](assets/README.md).
 
@@ -62,6 +71,8 @@ The original Roblox UI models remain supported. Local model overrides can remove
 RemoteSpy requires `checkcaller` and `hookfunction`. Other capabilities degrade independently:
 
 - `getcallbackvalue` enables incoming `OnClientInvoke` capture.
+- `getconnections` enables incoming event receiver inspection, local replay, and reversible incoming blocking.
+- `getactors` plus `run_on_actor` enables optional parallel-Luau capture. Actor states handshake through a temporary in-game bridge and are revisited to catch recreated VMs.
 - `getcallingscript` and `debug.getinfo` add call-site metadata.
 - `setclipboard` enables copy/export actions.
 - `gethui` provides hidden UI parenting; `CoreGui` is the fallback.
@@ -75,10 +86,10 @@ RemoteSpy requires `checkcaller` and `hookfunction`. Other capabilities degrade 
 
 ## Development
 
-The repository includes StyLua, Luau LSP, executor-global definitions, and a formatting workflow. Run:
+The repository includes StyLua, Luau LSP, executor-global definitions, runtime contract tests, and a formatting workflow. Run:
 
 ```powershell
 npx.cmd -y @johnnymorganz/stylua-bin@2.5.2 --check .
 ```
 
-Runtime validation still needs to be performed in a supported executor because ordinary Luau tooling cannot emulate executor hook semantics or Roblox networking.
+GitHub Actions runs the tests in `tests/*.luau`. Actual hook behavior cannot be emulated by a GitHub-hosted Luau process, so `tests/executor-smoke.lua` is the companion live test: execute it through the executor MCP server, then read `getgenv().HydroxideExecutorSmokeReport`. It uses only a temporary local `BindableEvent`, restores its hook, and never calls a server remote.

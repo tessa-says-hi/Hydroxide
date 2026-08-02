@@ -1,4 +1,11 @@
 type Packed<T> = { [number]: T, n: number }
+type LuaStateProxy = {
+    Event: any,
+    Id: number,
+    IsActorState: boolean,
+    Execute: (self: LuaStateProxy, source: string, ...any) -> (),
+    GetActors: (self: LuaStateProxy) -> { Actor },
+}
 
 declare function getgenv(): { [any]: any }
 declare function identifyexecutor(): (string, string?)
@@ -10,10 +17,18 @@ declare function isexecutorclosure(target: (...any) -> ...any): boolean
 declare function getcallingscript(): Instance?
 declare function getcallbackvalue(instance: Instance, property: string): any
 declare function getconnections(signal: RBXScriptSignal): { any }
+declare function getactorstates(): { LuaStateProxy }
+declare function get_actor_states(): { LuaStateProxy }
 declare function getactors(): { Actor }
 declare function get_actors(): { Actor }
+declare function getgamestate(): LuaStateProxy?
+declare function get_game_state(): LuaStateProxy?
+declare function getluastate(source: Actor | LuaSourceContainer?): LuaStateProxy?
+declare function get_lua_state(source: Actor | LuaSourceContainer?): LuaStateProxy?
 declare function run_on_actor(actor: Actor, source: string): any
 declare function runonactor(actor: Actor, source: string): any
+declare on_actor_state_created: any
+declare onactorstatecreated: any
 declare function getgc(includeTables: boolean?): { any }
 declare function getloadedmodules(excludeCore: boolean?): { ModuleScript }
 declare function getrunningscripts(): { LuaSourceContainer }

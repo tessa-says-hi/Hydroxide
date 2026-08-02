@@ -13,16 +13,24 @@ end
 
 local checkCaller = checkcaller
 local getConnections = getconnections or get_signal_cons
+local getActorStates = getactorstates
 local getActors = getactors or get_actors or (syn and syn.getactors)
+local getGameState = getgamestate
+local getLuaState = getluastate
 local hookFunction = hookfunction or replaceclosure or detour_function
 local hookMetaMethod = hookmetamethod
 local getNamecallMethod = getnamecallmethod or get_namecall_method
+local actorStateCreated = on_actor_state_created
 local runOnActor = run_on_actor or runonactor or (syn and syn.run_on_actor)
 local callerChecked, callerResult = pcall(checkCaller)
 report.tests.checkcaller = callerChecked and callerResult == true
+report.tests.getactorstates = type(getActorStates) == "function"
 report.tests.getactors = type(getActors) == "function"
+report.tests.getgamestate = type(getGameState) == "function"
+report.tests.getluastate = type(getLuaState) == "function"
 report.tests.getnamecallmethod = type(getNamecallMethod) == "function"
 report.tests.hookmetamethod = type(hookMetaMethod) == "function"
+report.tests.on_actor_state_created = actorStateCreated ~= nil
 report.tests.run_on_actor = type(runOnActor) == "function"
 
 local event = Instance.new("BindableEvent")
@@ -115,6 +123,79 @@ end
 
 connection:Disconnect()
 event:Destroy()
+
+if type(getActorStates) == "function" then
+    local listed, states = pcall(getActorStates)
+    if listed and type(states) == "table" and next(states) then
+        local bridge = Instance.new("Folder")
+        bridge.Name = "HydroxideStateSmoke_"
+            .. game:GetService("HttpService"):GenerateGUID(false):gsub("-", "")
+        local handshakeEvent = Instance.new("BindableEvent")
+        handshakeEvent.Name = "Data"
+        handshakeEvent.Parent = bridge
+        local parented, parentReason = pcall(function()
+            bridge.Parent = game:GetService("CoreGui")
+        end)
+        if parented then
+            local deliveries = {}
+            local handshakeConnection = handshakeEvent.Event:Connect(function(stateId)
+                deliveries[stateId] = true
+            end)
+            local ids = {}
+            local ran = 0
+            local unique = true
+            for _, state in next, states do
+                local stateId
+                local inspected = pcall(function()
+                    stateId = state.Id
+                end)
+                if inspected and type(stateId) == "number" then
+                    if ids[stateId] then
+                        unique = false
+                    end
+                    ids[stateId] = true
+                    local source = ([=[
+local bridge = game:GetService("CoreGui"):FindFirstChild(%s, true)
+if bridge then
+    bridge.Data:Fire(%s)
+end
+]=]):format(string.format("%q", bridge.Name), tostring(stateId))
+                    local execute
+                    pcall(function()
+                        execute = state.Execute
+                    end)
+                    if type(execute) == "function" then
+                        local executed, executeReason = pcall(execute, state, source)
+                        if executed then
+                            ran += 1
+                        else
+                            report.tests.actor_state_error = tostring(executeReason)
+                        end
+                    end
+                end
+            end
+            if ran > 0 then
+                task.wait(0.5)
+            end
+            local delivered = 0
+            for _ in pairs(deliveries) do
+                delivered += 1
+            end
+            report.tests.actor_state_bridge = ran > 0 and delivered == ran
+            report.tests.actor_state_ids_unique = unique
+            report.tests.actor_state_count = ran
+            handshakeConnection:Disconnect()
+        else
+            report.tests.actor_state_bridge = false
+            report.tests.actor_state_error = tostring(parentReason)
+        end
+        bridge:Destroy()
+    else
+        report.tests.actor_state_bridge = "no_state"
+    end
+else
+    report.tests.actor_state_bridge = "unsupported"
+end
 
 if type(getActors) == "function" and type(runOnActor) == "function" then
     local listed, actors = pcall(getActors)

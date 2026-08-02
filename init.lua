@@ -28,11 +28,13 @@ local function first(...)
 end
 
 local globalMethods = {
+    actorStateCreated = first(on_actor_state_created, onactorstatecreated),
     checkCaller = checkcaller,
     cloneRef = cloneref,
     compareInstances = compareinstances,
     decompileScript = first(decompile, decompile_script),
     getCallbackValue = getcallbackvalue,
+    getActorStates = first(getactorstates, get_actor_states),
     getActors = first(getactors, get_actors, syn and syn.getactors),
     getCallingScript = first(getcallingscript, get_calling_script),
     getConnections = first(getconnections, get_signal_cons),
@@ -47,9 +49,11 @@ local globalMethods = {
     ),
     getCustomAsset = first(getcustomasset, getsynasset),
     getGc = first(getgc, get_gc_objects),
+    getGameState = first(getgamestate, get_game_state),
     getHui = first(gethui, get_hidden_gui),
     getInfo = first(debug and debug.getinfo, getinfo),
     getLoadedModules = first(getloadedmodules, get_loaded_modules),
+    getLuaState = first(getluastate, get_lua_state),
     getMenv = first(getmenv, getsenv),
     getMetatable = first(getrawmetatable, debug and debug.getmetatable),
     getNamecallMethod = first(getnamecallmethod, get_namecall_method),
@@ -176,7 +180,7 @@ end
 
 local capabilities = {}
 for name, method in pairs(globalMethods) do
-    capabilities[name] = type(method) == "function"
+    capabilities[name] = type(method) == "function" or name == "actorStateCreated"
 end
 
 local config = {

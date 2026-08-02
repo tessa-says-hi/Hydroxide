@@ -991,8 +991,23 @@ function RemoteSpy.GetDiagnostics()
     local actorDiagnostics = actorRuntime and actorRuntime:GetDiagnostics()
         or {
             Active = false,
-            Available = type(getActors) == "function" and type(runOnActor) == "function",
+            Attempts = 0,
+            Available = type(getActorStates) == "function"
+                or (type(getActors) == "function" and type(runOnActor) == "function"),
+            Backend = type(getActorStates) == "function" and "states"
+                or (type(getActors) == "function" and type(runOnActor) == "function") and "actors"
+                or "none",
+            Failures = {},
+            LegacyCaptureAvailable = type(getActors) == "function" and type(runOnActor) == "function",
+            MethodHookedTargets = 0,
+            NamecallHookedTargets = 0,
             ReadyActors = 0,
+            ReadyStates = 0,
+            ReadyTargets = 0,
+            ReportedTargets = 0,
+            StateCaptureAvailable = type(getActorStates) == "function",
+            StateEvent = false,
+            Targets = 0,
         }
 
     local activeHooks = 0

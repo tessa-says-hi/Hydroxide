@@ -31,7 +31,7 @@ Running the loader again calls `oh.Exit()` first, disconnects listeners, restore
 - Optionally captures bindable calls.
 - Captures incoming `OnClientEvent` traffic for reliable and unreliable events.
 - Captures `RemoteFunction.OnClientInvoke` arguments and returns when the executor supports `getcallbackvalue`.
-- Captures outgoing calls made from parallel Luau Actor VMs when the executor supports `getactors` and `run_on_actor`.
+- Captures outgoing calls made from parallel Luau states, including cached method references created before Hydroxide loads. Executors with `getactorstates` use stable Lua-state IDs; `getactors` and `run_on_actor` remain the compatibility fallback.
 - Preserves trailing `nil` arguments and multiple return values with packed tuples.
 - Resolves copied event payloads back to retained calls by stable call ID for executor compatibility.
 - Records direction, method, calling script/function when available, errors, blocked state, and duration.
@@ -62,7 +62,7 @@ getgenv().HydroxideConfig = {
 }
 ```
 
-The loader works without filesystem APIs. If `readfile` and `writefile` are available, source modules are cached by the current branch commit. Capability and executor information is available through `oh.Capabilities`, `oh.Executor`, and `oh.Failures`. `oh.RemoteSpyDiagnostics()` reports active hooks, Actor handshakes/failures, incoming connection control, and retained payload bytes.
+The loader works without filesystem APIs. If `readfile` and `writefile` are available, source modules are cached by the current branch commit. Capability and executor information is available through `oh.Capabilities`, `oh.Executor`, and `oh.Failures`. `oh.RemoteSpyDiagnostics()` reports the selected Actor backend, stable state and hook counts, failures, incoming connection control, and retained payload bytes.
 
 `MaxRemoteLogBytes` limits raw retained arguments, returns, and errors across all remotes. A single payload larger than the limit is dropped while its compact call metadata remains visible. `CaptureExecutorCalls` is disabled by default to avoid logging Hydroxide replays and other executor tooling unless explicitly requested.
 
@@ -75,7 +75,8 @@ RemoteSpy requires `checkcaller` and `hookfunction`. Other capabilities degrade 
 - `hookmetamethod` and `getnamecallmethod` enable normal `:` call capture on executors whose direct method hooks only cover cached references.
 - `getcallbackvalue` enables incoming `OnClientInvoke` capture.
 - `getconnections` enables incoming event receiver inspection, local replay, and reversible incoming blocking.
-- `getactors` plus `run_on_actor` enables optional parallel-Luau capture. Actor states handshake through a temporary in-game bridge and are revisited to catch recreated VMs.
+- `getactorstates` enables the preferred parallel-Luau backend. Hydroxide executes its hooks in every returned `LuaStateProxy`, deduplicates refreshed proxies by `state.Id`, and uses `on_actor_state_created` with `getluastate` when available to instrument new states before their scripts cache methods.
+- `getactors` plus `run_on_actor` remains the parallel-Luau fallback for executors without Lua-state proxies.
 - `getcallingscript` and `debug.getinfo` add call-site metadata.
 - `setclipboard` enables copy/export actions.
 - `gethui` provides hidden UI parenting; `CoreGui` is the fallback.

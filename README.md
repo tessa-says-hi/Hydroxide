@@ -1,10 +1,10 @@
 ## Script
 ```lua
-local owner = "Upbolt"
+local owner = "tessa-says-hi"
 local branch = "revision"
 
 local function webImport(file)
-    return loadstring(game:HttpGetAsync(("https://raw.githubusercontent.com/%s/Hydroxide/%s/%s.lua"):format(owner, branch, file)), file .. '.lua')()
+    return loadstring(game:HttpGet(("https://raw.githubusercontent.com/%s/Hydroxide/%s/%s.lua"):format(owner, branch, file)), file .. '.lua')()
 end
 
 webImport("init")
@@ -21,7 +21,7 @@ webImport("ui/main")
 <p align="center">
     <img src="https://cdn.discordapp.com/attachments/633472429917995038/722143730500501534/Hydroxide_Logo.png"/>
     </br>
-    <img src="https://raw.githubusercontent.com/Upbolt/Hydroxide/revision/github-assets/ui.png" width="677px"/>
+    <img src="https://raw.githubusercontent.com/tessa-says-hi/Hydroxide/revision/github-assets/ui.png" width="677px"/>
 </p>
 
 ## Features

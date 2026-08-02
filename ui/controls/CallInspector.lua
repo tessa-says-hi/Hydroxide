@@ -114,6 +114,11 @@ local function renderText(inspector, text, mode)
     updateTextCanvas(inspector)
 end
 
+local function setSelectionMode(inspector, enabled)
+    inspector.Highlight.Visible = not enabled
+    inspector.TextBox.TextTransparency = enabled and 0 or 1
+end
+
 local function updateArgumentCanvas(inspector)
     inspector.Arguments.CanvasSize = UDim2.fromOffset(0, inspector.ArgumentLayout.AbsoluteContentSize.Y + 12)
 end
@@ -533,6 +538,12 @@ function CallInspector.new(parent)
     textContent:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
         updateTextCanvas(inspector)
     end)
+    textBox.Focused:Connect(function()
+        setSelectionMode(inspector, true)
+    end)
+    textBox.FocusLost:Connect(function()
+        setSelectionMode(inspector, false)
+    end)
 
     argumentTab.MouseButton1Click:Connect(function()
         inspector:SelectTab("Arguments")
@@ -565,6 +576,10 @@ function CallInspector.selectTab(inspector, name)
     end
 
     inspector.ActiveTab = name
+    if inspector.TextBox:IsFocused() then
+        inspector.TextBox:ReleaseFocus()
+    end
+    setSelectionMode(inspector, false)
     inspector.Arguments.Visible = name == "Arguments"
     inspector.TextContent.Visible = name ~= "Arguments"
     for tabName, tab in pairs(inspector.Tabs) do
@@ -610,6 +625,7 @@ function CallInspector.show(inspector, data)
     inspector.Data = data
     inspector.Title.Text = tostring(data.Title or "Remote call")
     inspector.RemoteIcon.Image = data.Icon or ""
+    setSelectionMode(inspector, false)
     renderArguments(inspector, data.Arguments or {})
     inspector.Instance.Visible = true
     inspector:SelectTab(data.InitialTab or "Arguments")
@@ -617,6 +633,10 @@ end
 
 function CallInspector.hide(inspector)
     closeMenu(inspector)
+    if inspector.TextBox:IsFocused() then
+        inspector.TextBox:ReleaseFocus()
+    end
+    setSelectionMode(inspector, false)
     inspector.Instance.Visible = false
     inspector.Data = nil
 end

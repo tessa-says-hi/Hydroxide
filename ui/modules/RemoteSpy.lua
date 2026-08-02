@@ -1227,8 +1227,15 @@ spyClosureContext:SetCallback(function()
             end
 
             if hooked == 0 then
-                local message = existing > 0 and "The receiver functions are already being spied."
-                    or "The receiver functions cannot be hooked because they expose no upvalues."
+                local message
+                if existing > 0 and unavailable > 0 then
+                    message =
+                        "Some receiver functions are already being spied; the rest expose no hookable upvalues."
+                elseif existing > 0 then
+                    message = "The receiver functions are already being spied."
+                else
+                    message = "The receiver functions cannot be hooked because they expose no upvalues."
+                end
                 MessageBox.Show("No new receiver hooks", message, MessageType.OK)
             else
                 oh.setStatus("Spying " .. hooked .. " receiver function" .. (hooked == 1 and "" or "s"))

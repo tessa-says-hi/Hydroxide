@@ -14,9 +14,7 @@ local constants = {
 }
 
 local function getGuiPoint(instance, point)
-    if typeof(point) == "Vector3" then
-        point = Vector2.new(point.X, point.Y)
-    end
+    point = Vector2.new(point.X, point.Y)
 
     local cam = workspace.CurrentCamera
     local viewport = cam and cam.ViewportSize or Vector2.new(1920, 1080)

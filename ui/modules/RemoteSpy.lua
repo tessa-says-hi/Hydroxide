@@ -660,7 +660,10 @@ local function createArg(instance, index, value)
     arg.Name = tostring(index)
     arg.Parent = instance.Contents
 
-    return arg.AbsoluteSize.Y + 5
+    -- CallPod.Size uses logical offset units and is scaled by the root UIScale.
+    -- Using AbsoluteSize here applies that scale twice and leaves a growing gap
+    -- below the rendered rows.
+    return arg.Size.Y.Offset + 5
 end
 
 function ArgsLog.new(log, callInfo)

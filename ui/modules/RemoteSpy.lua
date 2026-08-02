@@ -29,6 +29,7 @@ local ListFlags = RemoteList.Flags
 local ListQuery = RemoteList.Query
 local ListSearch = ListQuery.Search
 local ListRefresh = ListQuery.Refresh
+local ListResultsContainer = RemoteList.Results
 local ListResults = RemoteList.Results.Clip.Content
 local ListStatus = RemoteList.Results.Clip.ResultStatus
 
@@ -73,8 +74,55 @@ local constants = {
     textWidth = Vector2.new(1337420, 20),
     normalColor = Color3.new(1, 1, 1),
     blockedColor = Color3.fromRGB(170, 0, 0),
+    directionSelected = Color3.fromRGB(45, 45, 45),
+    directionUnselected = Color3.fromRGB(20, 20, 20),
     ignoredColor = Color3.fromRGB(100, 100, 100),
 }
+
+local directionTabs = Instance.new("Frame")
+directionTabs.Name = "Direction"
+directionTabs.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+directionTabs.BorderSizePixel = 0
+directionTabs.Position = ListFlags.Position
+directionTabs.Size = UDim2.new(ListFlags.Size.X.Scale, ListFlags.Size.X.Offset, 0, 20)
+directionTabs.ZIndex = ListFlags.ZIndex
+directionTabs.Parent = RemoteList
+
+local directionCorner = Instance.new("UICorner")
+directionCorner.CornerRadius = UDim.new(0, 2)
+directionCorner.Parent = directionTabs
+
+local function createDirectionButton(name, text, position, size)
+    local button = Instance.new("TextButton")
+    button.Name = name
+    button.AutoButtonColor = false
+    button.BackgroundColor3 = constants.directionUnselected
+    button.BorderSizePixel = 0
+    button.Font = Enum.Font.SourceSans
+    button.Position = position
+    button.Size = size
+    button.Text = text
+    button.TextColor3 = Color3.fromRGB(210, 210, 210)
+    button.TextSize = 14
+    button.ZIndex = directionTabs.ZIndex + 1
+    button.Parent = directionTabs
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 2)
+    corner.Parent = button
+    return button
+end
+
+local outgoingDirection =
+    createDirectionButton("Outgoing", "Outgoing", UDim2.new(0, 0, 0, 0), UDim2.new(0.5, -1, 1, 0))
+local incomingDirection =
+    createDirectionButton("Incoming", "Incoming", UDim2.new(0.5, 1, 0, 0), UDim2.new(0.5, -1, 1, 0))
+outgoingDirection.BackgroundColor3 = constants.directionSelected
+
+ListFlags.Position += UDim2.fromOffset(0, 25)
+ListQuery.Position += UDim2.fromOffset(0, 25)
+ListResultsContainer.Position += UDim2.fromOffset(0, 25)
+ListResultsContainer.Size -= UDim2.fromOffset(0, 25)
 
 local newRemoteCondition = Prompt.new(NewRemoteCondition)
 local conditionStatus = Dropdown.new(NewConditionContent.Status)
@@ -87,24 +135,71 @@ local remoteConditions = List.new(ConditionsResults, true)
 
 local currentLogs = {}
 local removed = {}
+local activeQuery = ""
+local selectedDirection = "outgoing"
 
 local selected = {
     logs = {},
     conditions = {},
 }
 
+local function callMatchesDirection(call)
+    if selectedDirection == "incoming" then
+        return call.direction == "incoming"
+    end
+
+    return call.direction == "outgoing" or call.direction == "local"
+end
+
+local function getRemoteDirection(remote)
+    if selectedDirection == "incoming" then
+        return "incoming"
+    elseif remote.Instance.ClassName:find("^Bindable") then
+        return "local"
+    end
+
+    return "outgoing"
+end
+
+local function getDirectionCount(remote)
+    local counts = remote.TotalCallsByDirection
+    if type(counts) ~= "table" then
+        local total = 0
+        for _, call in ipairs(remote.Logs) do
+            if callMatchesDirection(call) then
+                total += 1
+            end
+        end
+        return total
+    elseif selectedDirection == "incoming" then
+        return counts.incoming or 0
+    end
+
+    return (counts.outgoing or 0) + (counts["local"] or 0)
+end
+
+local function remoteMatchesFilters(remote)
+    local instance = remote.Instance
+    return getDirectionCount(remote) > 0
+        and remotesViewing[instance.ClassName]
+        and (activeQuery == "" or instance.Name:lower():find(activeQuery, 1, true) ~= nil)
+end
+
 local function updateRemoteStatus()
-    local hasLogs = next(currentLogs) ~= nil
+    local hasDirectionalLogs = false
     local hasVisibleLogs = false
 
     for _, log in pairs(currentLogs) do
+        if getDirectionCount(log.Remote) > 0 then
+            hasDirectionalLogs = true
+        end
         if log.Button.Instance.Visible then
             hasVisibleLogs = true
-            break
         end
     end
 
-    ListStatus.Text = hasLogs and "No remotes match filters" or "No remotes logged"
+    ListStatus.Text = hasDirectionalLogs and "No remotes match filters"
+        or "No " .. selectedDirection .. " remotes logged"
     ListStatus.Visible = not hasVisibleLogs
 end
 
@@ -205,12 +300,13 @@ local function checkCurrentIgnored()
     end
 
     local selectedRemote = selected.remoteLog.Remote
+    local ignored = selectedRemote:IsIgnored(getRemoteDirection(selectedRemote))
 
-    LogsButtons.Ignore.Label.Text = (selectedRemote.Ignored and "Unignore") or "Ignore"
-    LogsButtons.Ignore.Icon.Image = (selectedRemote.Ignored and icons.unignore) or icons.ignore
+    LogsButtons.Ignore.Label.Text = (ignored and "Unignore") or "Ignore"
+    LogsButtons.Ignore.Icon.Image = (ignored and icons.unignore) or icons.ignore
 
     local newWidth = TextService:GetTextSize(
-        (selectedRemote.Ignored and "Unignore") or "Ignore",
+        (ignored and "Unignore") or "Ignore",
         18,
         "SourceSans",
         constants.textWidth
@@ -225,12 +321,13 @@ local function checkCurrentBlocked()
     end
 
     local selectedRemote = selected.remoteLog.Remote
+    local blocked = selectedRemote:IsBlocked(getRemoteDirection(selectedRemote))
 
-    LogsButtons.Block.Label.Text = (selectedRemote.Blocked and "Unblock") or "Block"
-    LogsButtons.Block.Icon.Image = (selectedRemote.Blocked and icons.unblock) or icons.block
+    LogsButtons.Block.Label.Text = (blocked and "Unblock") or "Block"
+    LogsButtons.Block.Icon.Image = (blocked and icons.unblock) or icons.block
 
     local newWidth = TextService:GetTextSize(
-        (selectedRemote.Blocked and "Unblock") or "Block",
+        (blocked and "Unblock") or "Block",
         18,
         "SourceSans",
         constants.textWidth
@@ -241,9 +338,10 @@ end
 
 local function updateLogAppearance(log)
     local remote = log.Remote
-    if remote.Blocked then
+    local direction = getRemoteDirection(remote)
+    if remote:IsBlocked(direction) then
         log:PlayBlock()
-    elseif remote.Ignored then
+    elseif remote:IsIgnored(direction) then
         log:PlayIgnore()
     else
         log:PlayNormal()
@@ -251,6 +349,7 @@ local function updateLogAppearance(log)
 end
 
 local function setRemoteIgnored(log, enabled, direction)
+    direction = direction or getRemoteDirection(log.Remote)
     local state = Methods.SetIgnored(log.Remote, enabled, direction)
     if selected.remoteLog == log then
         checkCurrentIgnored()
@@ -260,6 +359,7 @@ local function setRemoteIgnored(log, enabled, direction)
 end
 
 local function setRemoteBlocked(log, enabled, direction, quiet)
+    direction = direction or getRemoteDirection(log.Remote)
     local state, synced, reason = Methods.SetBlocked(log.Remote, enabled, direction)
     if selected.remoteLog == log then
         checkCurrentBlocked()
@@ -408,6 +508,7 @@ function Log.new(remote)
     local remoteInstance = remote.Instance
     local remoteInstanceName = remoteInstance.Name
     local remoteClassName = remoteInstance.ClassName
+    button.Visible = remoteMatchesFilters(remote)
     local listButton = ListButton.new(button, remoteList)
 
     local normalAnimation =
@@ -420,6 +521,8 @@ function Log.new(remote)
     button.Name = remoteInstanceName
     button.Label.Text = remoteInstanceName
     button.Icon.Image = icons[remoteClassName] or icons.RemoteEvent
+    local directionCalls = getDirectionCount(remote)
+    button.Calls.Text = (directionCalls < 10000 and directionCalls) or "..."
 
     local function viewLogs()
         if selected.remoteLog then
@@ -432,7 +535,9 @@ function Log.new(remote)
         selected.remoteLog = log
 
         for _i, call in ipairs(remote.Logs) do
-            ArgsLog.new(log, call)
+            if callMatchesDirection(call) then
+                ArgsLog.new(log, call)
+            end
         end
 
         checkCurrentBlocked()
@@ -448,7 +553,14 @@ function Log.new(remote)
 
     listButton:SetCallback(function()
         if selected.remoteLog ~= log then
-            if #remote.Logs > 400 then
+            local retainedCalls = 0
+            for _, call in ipairs(remote.Logs) do
+                if callMatchesDirection(call) then
+                    retainedCalls += 1
+                end
+            end
+
+            if retainedCalls > 400 then
                 MessageBox.Show(
                     "Warning",
                     "This remote seems to have a lot of calls, opening this may cause your game to freeze for a few seconds.\n\nContinue?",
@@ -465,10 +577,13 @@ function Log.new(remote)
     end)
 
     listButton:SetRightCallback(function()
-        ignoreContext:SetIcon((remote.Ignored and icons.unignore) or icons.ignore)
-        ignoreContext:SetText((remote.Ignored and "Unignore Calls") or "Ignore Calls")
-        blockContext:SetIcon((remote.Blocked and icons.unblock) or icons.block)
-        blockContext:SetText((remote.Blocked and "Unblock Calls") or "Block Calls")
+        local direction = getRemoteDirection(remote)
+        local ignored = remote:IsIgnored(direction)
+        local blocked = remote:IsBlocked(direction)
+        ignoreContext:SetIcon((ignored and icons.unignore) or icons.ignore)
+        ignoreContext:SetText((ignored and "Unignore Calls") or "Ignore Calls")
+        blockContext:SetIcon((blocked and icons.unblock) or icons.block)
+        blockContext:SetText((blocked and "Unblock Calls") or "Block Calls")
 
         selected.logContext = log
     end)
@@ -494,6 +609,7 @@ function Log.new(remote)
     log.DecrementCalls = Log.decrementCalls
     log.RemoveCall = Log.removeCall
     log.Remove = Log.remove
+    updateLogAppearance(log)
     updateRemoteStatus()
     return log
 end
@@ -676,13 +792,20 @@ function Log.clear(log)
     end
 
     logInstance.Calls.Text = 0
+    logInstance.Visible = false
     log:Adjust()
+    remoteList:Recalculate()
+    updateRemoteStatus()
 end
 
 function Log.incrementCalls(log, callInfo)
+    if not callMatchesDirection(callInfo) then
+        return
+    end
+
     local buttonInstance = log.Button.Instance
     local remote = log.Remote
-    local calls = remote.TotalCalls
+    local calls = getDirectionCount(remote)
 
     if callInfo.evicted and callInfo.evicted.Button then
         callInfo.evicted.Button:Remove()
@@ -690,6 +813,8 @@ function Log.incrementCalls(log, callInfo)
     end
 
     buttonInstance.Calls.Text = (calls < 10000 and calls) or "..."
+    local wasVisible = buttonInstance.Visible
+    buttonInstance.Visible = remoteMatchesFilters(remote)
 
     log:Adjust()
 
@@ -697,13 +822,18 @@ function Log.incrementCalls(log, callInfo)
         ArgsLog.new(log, callInfo)
         remoteLogs:Recalculate()
     end
+
+    if wasVisible ~= buttonInstance.Visible then
+        remoteList:Recalculate()
+    end
+    updateRemoteStatus()
 end
 
 function Log.decrementCalls(log, call)
     local buttonInstance = log.Button.Instance
     local remote = log.Remote
     remote:DecrementCalls(call)
-    local calls = remote.TotalCalls
+    local calls = getDirectionCount(remote)
     buttonInstance.Calls.Text = (calls < 10000 and calls) or "..."
     log:Adjust()
 end
@@ -741,13 +871,40 @@ end
 -- UI Functionality
 
 local function refreshLogs()
-    for remoteInstance, log in pairs(currentLogs) do
-        log.Button.Instance.Visible = remotesViewing[remoteInstance.ClassName]
+    for _, log in pairs(currentLogs) do
+        local button = log.Button.Instance
+        local calls = getDirectionCount(log.Remote)
+        button.Calls.Text = (calls < 10000 and calls) or "..."
+        button.Visible = remoteMatchesFilters(log.Remote)
+        log:Adjust()
+        updateLogAppearance(log)
     end
 
     remoteList:Recalculate()
     updateRemoteStatus()
 end
+
+local function setDirection(direction)
+    selectedDirection = direction
+    activeQuery = ""
+    ListSearch.Text = ""
+    selected.logContext = nil
+    remoteList:DeselectAll()
+
+    outgoingDirection.BackgroundColor3 = direction == "outgoing" and constants.directionSelected
+        or constants.directionUnselected
+    incomingDirection.BackgroundColor3 = direction == "incoming" and constants.directionSelected
+        or constants.directionUnselected
+    refreshLogs()
+end
+
+outgoingDirection.MouseButton1Click:Connect(function()
+    setDirection("outgoing")
+end)
+
+incomingDirection.MouseButton1Click:Connect(function()
+    setDirection("incoming")
+end)
 
 for _i, flag in pairs(ListFlags:GetChildren()) do
     if flag:IsA("Frame") then
@@ -766,19 +923,15 @@ end
 
 ListSearch.FocusLost:Connect(function(returned)
     if returned then
-        for remoteInstance, log in pairs(currentLogs) do
-            local instance = log.Button.Instance
-            instance.Visible = remotesViewing[remoteInstance.ClassName]
-                and remoteInstance.Name:lower():find(ListSearch.Text:lower(), 1, true) ~= nil
-        end
-
-        remoteList:Recalculate()
-        updateRemoteStatus()
+        activeQuery = ListSearch.Text:lower()
+        refreshLogs()
         ListSearch.Text = ""
     end
 end)
 
 ListRefresh.MouseButton1Click:Connect(function()
+    activeQuery = ""
+    ListSearch.Text = ""
     refreshLogs()
 end)
 

@@ -63,6 +63,11 @@ function Remote.new(instance)
         MaxLogs = (oh and oh.Config and oh.Config.MaxRemoteLogs) or 500,
         RetainedBytes = 0,
         TotalCalls = 0,
+        TotalCallsByDirection = {
+            incoming = 0,
+            ["local"] = 0,
+            outgoing = 0,
+        },
     }
 
     remote.AreArgsBlocked = Remote.areArgsBlocked
@@ -85,6 +90,10 @@ function Remote.clear(remote)
     remote.Calls = 0
     remote.RetainedBytes = 0
     remote.TotalCalls = 0
+    table.clear(remote.TotalCallsByDirection)
+    remote.TotalCallsByDirection.incoming = 0
+    remote.TotalCallsByDirection["local"] = 0
+    remote.TotalCallsByDirection.outgoing = 0
     table.clear(remote.Logs)
 end
 
@@ -176,6 +185,10 @@ end
 
 function Remote.incrementCalls(remote, call)
     remote.TotalCalls += 1
+    local direction = call.direction
+    if remote.TotalCallsByDirection[direction] ~= nil then
+        remote.TotalCallsByDirection[direction] += 1
+    end
 
     local evicted
     if #remote.Logs >= remote.MaxLogs then

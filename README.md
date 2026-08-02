@@ -35,7 +35,8 @@ Running the loader again calls `oh.Exit()` first, disconnects listeners, restore
 - Resolves copied event payloads back to retained calls by stable call ID for executor compatibility.
 - Records direction, method, calling script/function when available, errors, blocked state, and duration.
 - Keeps bounded per-remote and global byte-limited history, with pause/resume, search, export, replay, block, ignore, and argument conditions.
-- Tracks block and ignore state independently for incoming, outgoing, and local calls; the existing remote-level controls still apply to all directions.
+- Splits the Remote Spy list into Incoming and Outgoing views with independent counts. Bindable traffic is grouped under Outgoing as local client activity.
+- Tracks block and ignore state independently for incoming, outgoing, and local calls; list-level controls apply to the direction currently being viewed.
 - Disables enabled `OnClientEvent` receiver connections while incoming calls are blocked, monitors for new receivers, and restores only the connections Hydroxide disabled.
 - Can opt in to executor-originated call capture and labels those calls in logs and exports.
 - Treats incoming calls as client receiver activity: local replay, receiver-script paths, and receiver-function spying replace misleading server-caller actions.

@@ -1,3 +1,4 @@
+local GuiService = game:GetService("GuiService")
 local UserInput = game:GetService("UserInputService")
 local TextService = game:GetService("TextService")
 local TweenService = game:GetService("TweenService")
@@ -11,6 +12,36 @@ local constants = {
     fadeLength = TweenInfo.new(0.15),
     textWidth = Vector2.new(1337420, 20),
 }
+
+local function getGuiPoint(instance, point)
+    local cam = workspace.CurrentCamera
+    local viewport = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+    local screenGui = instance:FindFirstAncestorWhichIsA("ScreenGui")
+    if screenGui and not screenGui.IgnoreGuiInset then
+        local topLeft, bottomRight = GuiService:GetGuiInset()
+        return point - topLeft, viewport - topLeft - bottomRight
+    end
+
+    return point, viewport
+end
+
+local function getParentBounds(instance, viewport)
+    local parent = instance.Parent
+    if parent and parent:IsA("GuiObject") and parent.AbsoluteSize.X > 0 and parent.AbsoluteSize.Y > 0 then
+        return parent.AbsolutePosition, parent.AbsoluteSize
+    end
+
+    return Vector2.zero, viewport
+end
+
+local function getScale(instance)
+    local width = math.abs(instance.Size.X.Offset)
+    if width > 0 and instance.AbsoluteSize.X > 0 then
+        return instance.AbsoluteSize.X / width
+    end
+
+    return 1
+end
 
 function ContextMenuButton.new(icon, text)
     local contextMenuButton = {}
@@ -108,13 +139,23 @@ function ContextMenu.show(contextMenu, position)
     end
 
     local instance = contextMenu.Instance
-    local point = position or UserInput:GetMouseLocation()
-    local cam = workspace.CurrentCamera
-    local viewport = cam and cam.ViewportSize or Vector2.new(1920, 1080)
-    local x = math.clamp(point.X, 0, math.max(0, viewport.X - instance.AbsoluteSize.X))
-    local y = math.clamp(point.Y, 0, math.max(0, viewport.Y - instance.AbsoluteSize.Y))
+    local point, viewport = getGuiPoint(instance, position or UserInput:GetMouseLocation())
+    local parentPosition, parentSize = getParentBounds(instance, viewport)
+    local min = Vector2.new(math.max(0, parentPosition.X), math.max(0, parentPosition.Y))
+    local max = Vector2.new(
+        math.min(viewport.X, parentPosition.X + parentSize.X),
+        math.min(viewport.Y, parentPosition.Y + parentSize.Y)
+    )
+    local x = math.clamp(point.X, min.X, math.max(min.X, max.X - instance.AbsoluteSize.X))
+    local y = math.clamp(point.Y, min.Y, math.max(min.Y, max.Y - instance.AbsoluteSize.Y))
+    local anchorOffset = Vector2.new(
+        instance.AbsoluteSize.X * instance.AnchorPoint.X,
+        instance.AbsoluteSize.Y * instance.AnchorPoint.Y
+    )
+    local localPosition = Vector2.new(x, y) - parentPosition + anchorOffset
+    local scale = getScale(instance)
 
-    instance.Position = UDim2.fromOffset(x, y)
+    instance.Position = UDim2.fromOffset(localPosition.X / scale, localPosition.Y / scale)
     instance.Visible = true
     contextMenu.Visible = true
     currentContextMenu = contextMenu
@@ -134,6 +175,7 @@ function ContextMenu.containsPoint(point)
     end
 
     local instance = currentContextMenu.Instance
+    point = getGuiPoint(instance, point)
     local min = instance.AbsolutePosition
     local max = min + instance.AbsoluteSize
     return point.X >= min.X and point.Y >= min.Y and point.X <= max.X and point.Y <= max.Y
